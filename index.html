@@ -203,7 +203,7 @@
     </section>
 
     <footer class="dashboard-card grid gap-5 px-4 py-5 text-sm text-muted sm:grid-cols-3 sm:px-6">
-      <div><h2 class="mb-2 font-bold text-[var(--text)]">Using the monitor</h2><p>Pan and zoom the map, then click a marker for details. Use the source, type, and time controls to narrow the view. Refresh feeds manually or wait for the ten-minute update.</p></div>
+      <div><h2 class="mb-2 font-bold text-[var(--text)]">Using the monitor</h2><p>Pan and zoom the map, then click a marker for details. Use the source, type, and time controls to narrow the view. Refresh feeds manually or wait for the ten-minute update. Use the header theme button to switch light/dark.</p></div>
       <div><h2 class="mb-2 font-bold text-[var(--text)]">Data providers</h2><p>NASA EONET tracks natural events, USGS provides recent earthquakes, and GDACS UN adds international alerts. Each feed is displayed independently.</p></div>
       <div><h2 class="mb-2 font-bold text-[var(--text)]">Public-feed note</h2><p>Public APIs and OpenStreetMap tiles may enforce rate limits, CORS policies, outages, or schema changes. If direct <code>file://</code> requests fail, serve this file from a local static server or HTTPS.</p></div>
     </footer>
@@ -759,6 +759,15 @@
       }
     }
 
+    function runUsageSelfTests() {
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(`Usage self-test failed: ${message}`);
+      };
+      const usageText = document.querySelector('footer div:first-child p')?.textContent || '';
+      assert(usageText.includes('header theme button') && usageText.includes('light') && usageText.includes('dark'), 'usage instructions explain switching between light and dark themes with the header theme button');
+      return { passed: true, tests: 1 };
+    }
+
     function requestRefresh() {
       if (typeof refreshData === 'function') return refreshData();
       return undefined;
@@ -963,6 +972,7 @@
     window.runAdapterSelfTests = runAdapterSelfTests;
     window.runRenderingSelfTests = runRenderingSelfTests;
     window.runRefreshSelfTests = runRefreshSelfTests;
+    window.runUsageSelfTests = runUsageSelfTests;
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initializeMonitor, { once: true });

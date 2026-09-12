@@ -307,7 +307,7 @@
       if (known === 'red') return 'Red';
       if (known === 'orange') return 'Orange';
       if (known === 'yellow') return 'Yellow';
-      return escapeHtml(providerValue);
+      return providerValue;
     }
 
     function normalizeTimestamp(value) {
@@ -370,7 +370,7 @@
         if (!point || !category) return [];
         return [{
           id: String(event?.id || event?.title || `${point.latitude},${point.longitude}`),
-          name: escapeHtml(String(event?.title || event?.id || 'Unnamed event')),
+          name: String(event?.title || event?.id || 'Unnamed event'),
           type: category,
           severity: 'Not specified',
           timestamp: normalizeTimestamp(geometry.date || event?.closed || event?.updated),
@@ -396,7 +396,7 @@
         const magnitude = Number(properties.mag);
         return [{
           id: String(feature?.id || properties.code || `${point.latitude},${point.longitude}`),
-          name: escapeHtml(String(properties.title || 'Unnamed earthquake')),
+          name: String(properties.title || 'Unnamed earthquake'),
           type: 'Earthquake',
           severity: Number.isFinite(magnitude) ? `Magnitude ${magnitude.toFixed(1)}` : 'Not specified',
           timestamp: normalizeTimestamp(properties.time),
@@ -435,7 +435,7 @@
         const eventId = getCaseInsensitive(properties, 'eventid', 'event_id', 'id') || event?.id;
         return [{
           id: String(eventId || `${point.latitude},${point.longitude}`),
-          name: escapeHtml(String(getCaseInsensitive(properties, 'eventname', 'name', 'title') || 'Unnamed event')),
+          name: String(getCaseInsensitive(properties, 'eventname', 'name', 'title') || 'Unnamed event'),
           type,
           severity: gdacsSeverity(getCaseInsensitive(properties, 'alertlevel', 'alert_level', 'severity')),
           timestamp: normalizeTimestamp(getCaseInsensitive(properties, 'fromdate', 'from_date', 'date', 'eventdate')),
@@ -630,13 +630,13 @@
       assert(normalizeSeverity('RED') === 'Red', 'red severity normalization');
       assert(normalizeSeverity('orange') === 'Orange', 'orange severity normalization');
       assert(normalizeSeverity('YELLOW') === 'Yellow', 'yellow severity normalization');
-      assert(normalizeSeverity('Provider <status>') === 'Provider &lt;status&gt;', 'provider severity text is HTML-escaped');
+      assert(normalizeSeverity('Provider <status>') === 'Provider <status>', 'provider severity text remains raw until rendering');
       assert(escapeHtml('<tag attr="x">&\'') === '&lt;tag attr=&quot;x&quot;&gt;&amp;&#39;', 'HTML escaping');
       assert(safeUrl('javascript:alert(1)') === null, 'non-HTTP URL rejection');
 
       const eonetEvents = await withFixtureFetch({
         events: [{
-          id: 'eonet-fixture', title: '<img src=x onerror=alert(1)> Fixture Fire', link: 'https://example.test/eonet',
+          id: 'eonet-fixture', title: 'Fire & Rescue <img src=x onerror=alert(1)> Fixture Fire', link: 'https://example.test/eonet',
           categories: [{ title: 'Wildfires' }],
           geometry: [
             { type: 'Point', coordinates: [120, 45], date: '2026-01-01T00:00:00Z' },
@@ -647,7 +647,10 @@
       }, () => fetchEonetEvents());
       assert(eonetEvents.length === 1 && eonetEvents[0].latitude === 46 && eonetEvents[0].longitude === 121, 'EONET selects the newest Point geometry');
       assert(eonetEvents[0].type === 'Wildfire' && eonetEvents[0].sourceId === 'eonet', 'EONET record normalization');
-      assert(eonetEvents[0].name === '&lt;img src=x onerror=alert(1)&gt; Fixture Fire', 'EONET provider titles are HTML-escaped');
+      assert(eonetEvents[0].name === 'Fire & Rescue <img src=x onerror=alert(1)> Fixture Fire', 'EONET provider titles remain raw until rendering');
+      const eonetPopup = buildPopupContent(eonetEvents[0]);
+      assert(eonetPopup.includes('Fire &amp; Rescue') && !eonetPopup.includes('Fire &amp;amp; Rescue'), 'popup escapes ampersands exactly once');
+      assert(eonetPopup.includes('&lt;img src=x onerror=alert(1)&gt;') && !eonetPopup.includes('<img src=x onerror=alert(1)>'), 'popup escapes malicious raw provider text');
 
       const isolatedEonetEvents = await withFixtureFetch({
         events: [
@@ -676,7 +679,7 @@
       }, () => fetchGdacsEvents());
       assert(gdacsEvents.length === 1 && gdacsEvents[0].sourceId === 'gdacs', 'GDACS GeoJSON feature normalization');
       assert(gdacsEvents[0].type === 'Flood' && gdacsEvents[0].severity === 'Orange' && gdacsEvents[0].longitude === 78.5, 'GDACS properties and coordinates');
-      return { passed: true, tests: 28 };
+      return { passed: true, tests: 30 };
     }
 
     // Executable rendering checks. Run `runRenderingSelfTests()` from the browser

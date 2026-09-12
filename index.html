@@ -250,19 +250,22 @@
       if (typeof map !== 'undefined') window.setTimeout(() => map.invalidateSize(), 220);
     }
 
-    applyTheme(getPreferredTheme());
-    document.querySelector('#theme-toggle').addEventListener('click', toggleTheme);
-
     // Leaflet canvas and one shared cluster layer for all future provider markers.
-    const map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    const markerCluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false });
-    map.addLayer(markerCluster);
-    window.map = map;
-    window.markerCluster = markerCluster;
+    let map;
+    let markerCluster;
+
+    function initializeMap() {
+      if (map) return;
+      map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      markerCluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false });
+      map.addLayer(markerCluster);
+      window.map = map;
+      window.markerCluster = markerCluster;
+    }
 
     const TYPE_COLORS = Object.freeze({
       Earthquake: '#ff4444', Wildfire: '#ff9100', Volcano: '#8b4513',
@@ -454,6 +457,8 @@
       gdacs: { label: 'GDACS UN', fetchEvents: fetchGdacsEvents }
     });
 
+    const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
     const state = {
       theme: getPreferredTheme(),
       timeRange: '7d',
@@ -464,7 +469,8 @@
       refreshToken: 0,
       activeController: null,
       isLoading: false,
-      lastRefresh: null
+      lastRefresh: null,
+      refreshInterval: null
     };
 
     function getFilteredEvents() {
@@ -543,10 +549,10 @@
     }
 
     function sourceStatusMessage(sourceId) {
+      if (!state.enabledSources.has(sourceId)) return 'Disabled';
       const status = state.sourceStatus.get(sourceId);
       if (typeof status === 'string') return status;
       if (status && typeof status === 'object') return String(status.message || status.status || status.state || 'Ready');
-      if (!state.enabledSources.has(sourceId)) return 'Disabled';
       return state.isLoading ? 'Loading…' : 'Ready';
     }
 
@@ -570,33 +576,240 @@
       renderSourceStatuses();
     }
 
+    function setLoading(loading) {
+      const isLoading = Boolean(loading);
+      state.isLoading = isLoading;
+      document.querySelector('#loading-indicator').hidden = !isLoading;
+      document.querySelector('#refresh-button').disabled = isLoading;
+      document.querySelector('#monitor-region').setAttribute('aria-busy', String(isLoading));
+      Object.keys(SOURCE_ADAPTERS).forEach(sourceId => {
+        if (!state.enabledSources.has(sourceId)) {
+          state.sourceStatus.set(sourceId, 'Disabled');
+        } else if (isLoading) {
+          state.sourceStatus.set(sourceId, 'Loading…');
+        } else if (state.sourceStatus.get(sourceId) === 'Loading…') {
+          state.sourceStatus.set(sourceId, 'Ready');
+        }
+      });
+      renderSourceStatuses();
+    }
+
+    function refreshFailureMessage() {
+      return 'Unable to load — retry refresh.';
+    }
+
+    async function refreshData() {
+      const token = ++state.refreshToken;
+      state.activeController?.abort();
+      const controller = new AbortController();
+      state.activeController = controller;
+      setLoading(true);
+
+      const enabled = [...state.enabledSources];
+      try {
+        const settled = await Promise.allSettled(enabled.map(async sourceId => ({
+          sourceId,
+          events: await SOURCE_ADAPTERS[sourceId].fetchEvents(controller.signal)
+        })));
+
+        if (token !== state.refreshToken) return;
+
+        const nextEvents = [];
+        let successfulSources = 0;
+        settled.forEach((result, index) => {
+          const sourceId = enabled[index];
+          if (result.status === 'fulfilled') {
+            const events = Array.isArray(result.value.events) ? result.value.events : [];
+            nextEvents.push(...events);
+            state.sourceStatus.set(sourceId, `${events.length} loaded`);
+            successfulSources += 1;
+          } else {
+            state.sourceStatus.set(sourceId, refreshFailureMessage());
+          }
+        });
+        Object.keys(SOURCE_ADAPTERS).forEach(sourceId => {
+          if (!state.enabledSources.has(sourceId)) state.sourceStatus.set(sourceId, 'Disabled');
+        });
+        state.events = nextEvents;
+        if (successfulSources) state.lastRefresh = new Date();
+        render();
+      } finally {
+        if (token === state.refreshToken) {
+          if (state.activeController === controller) state.activeController = null;
+          setLoading(false);
+        }
+      }
+    }
+
+    // Executable refresh checks. Run `runRefreshSelfTests()` from the browser
+    // console after changing refresh lifecycle, provider status, or controls.
+    async function runRefreshSelfTests() {
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(`Refresh self-test failed: ${message}`);
+      };
+      assert(typeof refreshData === 'function', 'refreshData is available');
+      assert(typeof setLoading === 'function', 'setLoading is available');
+
+      const eventFor = (id, sourceId, type = 'Wildfire') => ({
+        id,
+        name: `${id} event`,
+        type,
+        severity: 'Not specified',
+        timestamp: new Date().toISOString(),
+        latitude: 10,
+        longitude: 20,
+        sourceId,
+        sourceName: SOURCE_ADAPTERS[sourceId].label,
+        detailUrl: 'https://example.test/details'
+      });
+      const originalFetchers = Object.fromEntries(Object.entries(SOURCE_ADAPTERS)
+        .map(([sourceId, adapter]) => [sourceId, adapter.fetchEvents]));
+      const savedState = {
+        enabledSources: new Set(state.enabledSources),
+        events: state.events,
+        sourceStatus: new Map(state.sourceStatus),
+        refreshToken: state.refreshToken,
+        activeController: state.activeController,
+        isLoading: state.isLoading,
+        lastRefresh: state.lastRefresh
+      };
+      const sourceControls = [...document.querySelectorAll('[data-source-toggle]')];
+      const savedChecks = sourceControls.map(control => control.checked);
+
+      try {
+        state.enabledSources = new Set(['eonet', 'usgs', 'gdacs']);
+        state.events = [];
+        state.sourceStatus = new Map();
+        sourceControls.forEach(control => { control.checked = true; });
+
+        let releaseLoading;
+        const loadingEvents = [eventFor('loading-eonet', 'eonet')];
+        SOURCE_ADAPTERS.eonet.fetchEvents = () => new Promise(resolve => { releaseLoading = resolve; });
+        SOURCE_ADAPTERS.usgs.fetchEvents = async () => [];
+        SOURCE_ADAPTERS.gdacs.fetchEvents = async () => [];
+        const loadingRefresh = refreshData();
+        assert(!document.querySelector('#loading-indicator').hidden, 'loading indicator appears while a refresh is pending');
+        assert(document.querySelector('#refresh-button').disabled, 'manual refresh is disabled while a refresh is pending');
+        assert(document.querySelector('#monitor-region').getAttribute('aria-busy') === 'true', 'monitor region is busy while a refresh is pending');
+        assert(state.sourceStatus.get('eonet') === 'Loading…', 'enabled sources are marked loading');
+        releaseLoading(loadingEvents);
+        await loadingRefresh;
+        assert(document.querySelector('#loading-indicator').hidden, 'loading indicator hides after the current refresh settles');
+        assert(!document.querySelector('#refresh-button').disabled, 'manual refresh is enabled after the current refresh settles');
+        assert(document.querySelector('#monitor-region').getAttribute('aria-busy') === 'false', 'monitor region is not busy after the current refresh settles');
+
+        SOURCE_ADAPTERS.eonet.fetchEvents = async () => [eventFor('partial-eonet', 'eonet')];
+        SOURCE_ADAPTERS.usgs.fetchEvents = async () => { throw new Error('offline'); };
+        SOURCE_ADAPTERS.gdacs.fetchEvents = async () => [eventFor('partial-gdacs', 'gdacs', 'Flood')];
+        await refreshData();
+        assert(state.events.map(event => event.id).join(',') === 'partial-eonet,partial-gdacs', 'fulfilled providers replace events while failed providers are isolated');
+        assert(state.sourceStatus.get('eonet') === '1 loaded' && state.sourceStatus.get('gdacs') === '1 loaded', 'fulfilled providers publish loaded counts');
+        assert(state.sourceStatus.get('usgs').includes('Unable to load'), 'failed providers publish a retryable failure message');
+        assert(state.lastRefresh instanceof Date, 'any successful provider updates the last-refresh time');
+        assert(markerCluster.getLayers().length === 2 && document.querySelector('#total-count').textContent === '2', 'one render replaces marker and statistic output after partial success');
+        await refreshData();
+        assert(markerCluster.getLayers().length === 2 && document.querySelector('#total-count').textContent === '2', 'repeated refreshes do not duplicate markers or statistics');
+
+        SOURCE_ADAPTERS.eonet.fetchEvents = async () => [eventFor('toggle-eonet', 'eonet')];
+        SOURCE_ADAPTERS.usgs.fetchEvents = async () => [eventFor('toggle-usgs', 'usgs', 'Earthquake')];
+        SOURCE_ADAPTERS.gdacs.fetchEvents = async () => [eventFor('toggle-gdacs', 'gdacs', 'Flood')];
+        const gdacsControl = document.querySelector('[data-source-toggle="gdacs"]');
+        gdacsControl.checked = false;
+        gdacsControl.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert(state.events.map(event => event.id).join(',') === 'toggle-eonet,toggle-usgs', 'a source-toggle change invokes refreshData and excludes its disabled provider');
+        assert(state.sourceStatus.get('gdacs') === 'Disabled', 'disabled providers have an explicit disabled status');
+
+        SOURCE_ADAPTERS.eonet.fetchEvents = async () => [eventFor('manual-eonet', 'eonet')];
+        SOURCE_ADAPTERS.usgs.fetchEvents = async () => [eventFor('manual-usgs', 'usgs', 'Earthquake')];
+        document.querySelector('#refresh-button').dispatchEvent(new Event('click', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert(state.events.map(event => event.id).join(',') === 'manual-eonet,manual-usgs', 'a manual-refresh click invokes refreshData');
+
+        state.enabledSources = new Set(['eonet']);
+        let resolveOlder;
+        let fetchCount = 0;
+        SOURCE_ADAPTERS.eonet.fetchEvents = () => {
+          fetchCount += 1;
+          return fetchCount === 1
+            ? new Promise(resolve => { resolveOlder = resolve; })
+            : Promise.resolve([eventFor('newest-eonet', 'eonet')]);
+        };
+        const olderRefresh = refreshData();
+        const newestRefresh = refreshData();
+        await newestRefresh;
+        resolveOlder([eventFor('older-eonet', 'eonet')]);
+        await olderRefresh;
+        assert(state.events.length === 1 && state.events[0].id === 'newest-eonet', 'stale refreshes cannot overwrite the newest response');
+        assert(!state.isLoading && document.querySelector('#loading-indicator').hidden, 'only the current refresh clears loading state in finally');
+        assert(REFRESH_INTERVAL_MS === 10 * 60 * 1000 && state.refreshInterval !== null, 'a ten-minute refresh schedule is registered');
+        return { passed: true, tests: 19 };
+      } finally {
+        state.activeController?.abort();
+        Object.entries(originalFetchers).forEach(([sourceId, fetchEvents]) => { SOURCE_ADAPTERS[sourceId].fetchEvents = fetchEvents; });
+        state.enabledSources = savedState.enabledSources;
+        state.events = savedState.events;
+        state.sourceStatus = savedState.sourceStatus;
+        state.refreshToken = savedState.refreshToken;
+        state.activeController = savedState.activeController;
+        state.isLoading = savedState.isLoading;
+        state.lastRefresh = savedState.lastRefresh;
+        sourceControls.forEach((control, index) => { control.checked = savedChecks[index]; });
+        render();
+      }
+    }
+
     function requestRefresh() {
       if (typeof refreshData === 'function') return refreshData();
       return undefined;
     }
 
-    document.querySelectorAll('[data-source-toggle]').forEach(control => {
-      control.addEventListener('change', event => {
-        const sourceId = event.currentTarget.dataset.sourceToggle;
-        event.currentTarget.checked ? state.enabledSources.add(sourceId) : state.enabledSources.delete(sourceId);
-        requestRefresh();
+    function initializeControlStates() {
+      document.querySelectorAll('[data-source-toggle]').forEach(control => {
+        control.checked = state.enabledSources.has(control.dataset.sourceToggle);
       });
-    });
-    document.querySelectorAll('[data-type-toggle]').forEach(control => {
-      control.addEventListener('change', event => {
-        const type = event.currentTarget.dataset.typeToggle;
-        event.currentTarget.checked ? state.enabledTypes.add(type) : state.enabledTypes.delete(type);
+      document.querySelectorAll('[data-type-toggle]').forEach(control => {
+        control.checked = state.enabledTypes.has(control.dataset.typeToggle);
+      });
+      document.querySelector('#time-range').value = state.timeRange;
+    }
+
+    function bindControls() {
+      document.querySelectorAll('[data-source-toggle]').forEach(control => {
+        control.addEventListener('change', event => {
+          const sourceId = event.currentTarget.dataset.sourceToggle;
+          event.currentTarget.checked ? state.enabledSources.add(sourceId) : state.enabledSources.delete(sourceId);
+          requestRefresh();
+        });
+      });
+      document.querySelectorAll('[data-type-toggle]').forEach(control => {
+        control.addEventListener('change', event => {
+          const type = event.currentTarget.dataset.typeToggle;
+          event.currentTarget.checked ? state.enabledTypes.add(type) : state.enabledTypes.delete(type);
+          render();
+        });
+      });
+      document.querySelector('#time-range').addEventListener('change', event => {
+        state.timeRange = event.currentTarget.value;
         render();
       });
-    });
-    document.querySelector('#time-range').addEventListener('change', event => {
-      state.timeRange = event.currentTarget.value;
+      document.querySelector('#theme-toggle').addEventListener('click', () => {
+        toggleTheme();
+        state.theme = document.documentElement.dataset.theme;
+      });
+      document.querySelector('#refresh-button').addEventListener('click', requestRefresh);
+    }
+
+    function initializeMonitor() {
+      state.theme = getPreferredTheme();
+      applyTheme(state.theme);
+      initializeMap();
+      initializeControlStates();
+      bindControls();
       render();
-    });
-    document.querySelector('#theme-toggle').addEventListener('click', () => {
-      state.theme = document.documentElement.dataset.theme;
-    });
-    document.querySelector('#refresh-button').addEventListener('click', requestRefresh);
+      refreshData();
+      state.refreshInterval = setInterval(refreshData, REFRESH_INTERVAL_MS);
+    }
 
     // Executable fixture checks. Run `runAdapterSelfTests()` from the browser console
     // after changing a provider schema or any normalization rule.
@@ -749,6 +962,13 @@
 
     window.runAdapterSelfTests = runAdapterSelfTests;
     window.runRenderingSelfTests = runRenderingSelfTests;
+    window.runRefreshSelfTests = runRefreshSelfTests;
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeMonitor, { once: true });
+    } else {
+      initializeMonitor();
+    }
   </script>
 </body>
 </html>

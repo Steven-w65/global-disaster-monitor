@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,6 +7,19 @@
   <meta name="description" content="A live, multi-source global disaster monitoring dashboard.">
   <title>Global Disaster Monitor</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23121212'/%3E%3Cpath d='M32 9 38 25l17 1-13 11 4 17-14-9-14 9 4-17L9 26l17-1z' fill='%23ff4444'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23f8f9fa'/%3E%3C/svg%3E" type="image/svg+xml">
+  <script>
+    (() => {
+      let theme = 'dark';
+      try {
+        const saved = localStorage.getItem('global-disaster-monitor-theme');
+        if (saved === 'light' || saved === 'dark') theme = saved;
+      } catch (error) { /* storage is optional */ }
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.style.colorScheme = theme;
+    })();
+  </script>
+  <script>window.__themeBeforeBodyPaint = document.documentElement.dataset.theme || null;</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
@@ -21,7 +34,14 @@
       --border: rgba(23, 32, 42, .14);
       --shadow: 0 16px 40px rgba(23, 32, 42, .15);
       --popup: #ffffff;
-      --cluster: #334155;
+      --accent-text: #005f8f;
+      --accent-border: #0077b6;
+      --action-bg: #006aa6;
+      --action-hover: #00517f;
+      --action-fg: #ffffff;
+      --focus: #0077b6;
+      --cluster-bg: #334155;
+      --cluster-fg: #ffffff;
       --control: #ffffff;
       --map-chrome: #ffffff;
     }
@@ -35,17 +55,23 @@
       --border: rgba(255, 255, 255, .13);
       --shadow: 0 18px 46px rgba(0, 0, 0, .42);
       --popup: #1e1e1e;
-      --cluster: #94a3b8;
+      --accent-text: #7dd3fc;
+      --accent-border: #38bdf8;
+      --action-bg: #006aa6;
+      --action-hover: #00517f;
+      --action-fg: #ffffff;
+      --focus: #38bdf8;
+      --cluster-bg: #cbd5e1;
+      --cluster-fg: #17202a;
       --control: #262626;
       --map-chrome: #202020;
     }
 
     * { box-sizing: border-box; }
 
-    html { min-width: 320px; background: var(--page); }
+    html { background: var(--page); }
 
     body {
-      min-width: 320px;
       margin: 0;
       color: var(--text);
       background:
@@ -58,7 +84,7 @@
     button, select, input { font: inherit; }
 
     button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
-      outline: 3px solid #66ccff;
+      outline: 3px solid var(--focus);
       outline-offset: 2px;
     }
 
@@ -71,9 +97,23 @@
       -webkit-backdrop-filter: blur(14px);
     }
 
-    .dashboard-card:hover { border-color: rgba(102, 204, 255, .4); }
+    .dashboard-card:hover { border-color: color-mix(in srgb, var(--accent-border) 65%, transparent); }
 
     .text-muted { color: var(--muted); }
+    .accent-copy { color: var(--accent-text); }
+    .accent-badge {
+      border-color: color-mix(in srgb, var(--accent-border) 48%, transparent);
+      color: var(--accent-text);
+      background: color-mix(in srgb, var(--accent-border) 12%, transparent);
+    }
+    .accent-dot { background: var(--accent-text); }
+    #theme-toggle:hover, #source-controls label:hover { border-color: var(--accent-border); }
+    #refresh-button, .popup-cta {
+      color: var(--action-fg);
+      background: var(--action-bg);
+    }
+    #refresh-button:hover, .popup-cta:hover { background: var(--action-hover); }
+    #loading-indicator[hidden] { display: none; }
 
     #map {
       height: 85vh;
@@ -93,15 +133,17 @@
       box-shadow: 0 4px 14px rgba(0, 0, 0, .16) !important;
     }
     .leaflet-control-zoom a { color: var(--text) !important; background: var(--map-chrome) !important; }
-    .leaflet-control-attribution a { color: #0099ff; }
+    .leaflet-control-attribution a { color: var(--accent-text); }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { color: var(--text); background: var(--popup); }
-    .leaflet-popup-content a { color: #0099ff; }
+    .leaflet-popup-content a { color: var(--accent-text); }
+    .leaflet-popup-content .popup-body { color: var(--text); }
+    .leaflet-popup-content a.popup-cta { color: var(--action-fg); background: var(--action-bg); }
 
     .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
-      color: #fff;
-      background-color: color-mix(in srgb, var(--cluster) 72%, transparent);
+      color: var(--cluster-fg);
+      background-color: color-mix(in srgb, var(--cluster-bg) 72%, transparent);
     }
-    .marker-cluster div { background-color: var(--cluster); color: #fff; }
+    .marker-cluster div { background-color: var(--cluster-bg); color: var(--cluster-fg); }
 
     @media (max-width: 640px) {
       #map { min-height: 520px; }
@@ -114,21 +156,21 @@
     <header class="dashboard-card flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
       <div>
         <div class="mb-1 flex flex-wrap items-center gap-2">
-          <span class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[.22em] text-[#66ccff]">
-            <span class="h-2 w-2 animate-pulse rounded-full bg-[#66ccff]" aria-hidden="true"></span>
+          <span class="accent-copy inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[.22em]">
+            <span class="accent-dot h-2 w-2 animate-pulse rounded-full" aria-hidden="true"></span>
             Live operations view
           </span>
-          <span class="rounded-full border border-[#66ccff]/30 bg-[#66ccff]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#66ccff]">Public feeds</span>
+          <span class="accent-badge rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Public feeds</span>
         </div>
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Global Disaster Monitor</h1>
         <p class="mt-1 max-w-2xl text-sm text-muted">A unified view of earthquakes, wildfires, storms, floods, and volcanoes worldwide.</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="hidden text-xs text-muted sm:inline">Auto-refresh every 10 minutes</span>
-        <button id="theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false" class="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm font-semibold transition hover:border-[#66ccff]" title="Toggle color theme">
+        <button id="theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false" class="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm font-semibold transition" title="Toggle color theme">
           <span id="theme-icon" aria-hidden="true">☾</span><span id="theme-label">Dark</span>
         </button>
-        <button id="refresh-button" type="button" class="inline-flex items-center gap-2 rounded-lg bg-[#0099ff] px-3 py-2 text-sm font-bold text-white shadow-lg shadow-[#0099ff]/20 transition hover:bg-[#007acc] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh disaster feeds">
+        <button id="refresh-button" type="button" class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh disaster feeds">
           <span aria-hidden="true">↻</span><span>Refresh feeds</span>
         </button>
       </div>
@@ -138,12 +180,12 @@
       <fieldset class="min-w-[12rem] flex-1">
         <legend class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Data sources</legend>
         <div class="flex flex-wrap gap-2" id="source-controls">
-          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="eonet" checked class="accent-[#0099ff]"> NASA EONET</label>
-          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="usgs" checked class="accent-[#0099ff]"> USGS</label>
-          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="gdacs" checked class="accent-[#0099ff]"> GDACS</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition"><input type="checkbox" data-source-toggle="eonet" checked class="accent-[#0099ff]"> NASA EONET</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition"><input type="checkbox" data-source-toggle="usgs" checked class="accent-[#0099ff]"> USGS</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition"><input type="checkbox" data-source-toggle="gdacs" checked class="accent-[#0099ff]"> GDACS</label>
         </div>
       </fieldset>
-      <fieldset class="min-w-[17rem] flex-[1.4]">
+      <fieldset class="w-full min-w-0 flex-none sm:min-w-[17rem] sm:flex-[1.4]">
         <legend class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Disaster types</legend>
         <div class="flex flex-wrap gap-x-3 gap-y-2" id="type-controls">
           <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Earthquake" checked class="accent-[#ff4444]"> Earthquake</label>
@@ -172,7 +214,7 @@
       <aside class="map-overlay dashboard-card absolute right-4 top-4 z-[500] w-64 p-4" aria-label="Statistics">
         <div class="flex items-end justify-between gap-3 border-b border-[var(--border)] pb-3">
           <div><p class="text-xs font-bold uppercase tracking-wider text-muted">Visible events</p><span id="total-count" class="text-3xl font-bold">0</span></div>
-          <span class="rounded-full bg-[#66ccff]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#66ccff]">Live</span>
+          <span class="accent-badge rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider">Live</span>
         </div>
         <div class="mt-3"><h2 class="text-xs font-bold uppercase tracking-wider text-muted">By source</h2><div id="source-stats" class="mt-2 space-y-1 text-sm"></div></div>
         <div class="mt-3"><h2 class="text-xs font-bold uppercase tracking-wider text-muted">By type</h2><div id="type-stats" class="mt-2 space-y-1 text-sm"></div></div>
@@ -329,6 +371,21 @@
       }
     }
 
+    function formatUsgsMagnitude(value) {
+      if (value === null || value === undefined || typeof value === 'boolean') return 'Not specified';
+      if (typeof value === 'string' && !value.trim()) return 'Not specified';
+      const magnitude = Number(value);
+      return Number.isFinite(magnitude) ? `Magnitude ${magnitude.toFixed(1)}` : 'Not specified';
+    }
+
+    function gdacsDetailUrl(value) {
+      const report = getCaseInsensitive(value, 'report');
+      const candidate = typeof value === 'string'
+        ? value
+        : (typeof report === 'string' && report.trim() ? report : getCaseInsensitive(value, 'details'));
+      return safeUrl(candidate);
+    }
+
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -396,12 +453,11 @@
         const point = parseGeoPoint(feature?.geometry?.coordinates);
         if (!point) return [];
         const properties = feature?.properties || {};
-        const magnitude = Number(properties.mag);
         return [{
           id: String(feature?.id || properties.code || `${point.latitude},${point.longitude}`),
           name: String(properties.title || 'Unnamed earthquake'),
           type: 'Earthquake',
-          severity: Number.isFinite(magnitude) ? `Magnitude ${magnitude.toFixed(1)}` : 'Not specified',
+          severity: formatUsgsMagnitude(properties.mag),
           timestamp: normalizeTimestamp(properties.time),
           latitude: point.latitude,
           longitude: point.longitude,
@@ -446,7 +502,7 @@
           longitude: point.longitude,
           sourceId: 'gdacs',
           sourceName: 'GDACS UN',
-          detailUrl: safeUrl(getCaseInsensitive(properties, 'url', 'eventurl', 'link'))
+          detailUrl: gdacsDetailUrl(getCaseInsensitive(properties, 'url', 'eventurl', 'link'))
         }];
       });
     }
@@ -458,6 +514,7 @@
     });
 
     const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+    const SOURCE_REQUEST_TIMEOUT_MS = 15_000;
 
     const state = {
       theme: getPreferredTheme(),
@@ -494,9 +551,9 @@
     function buildPopupContent(event) {
       const detailUrl = safeUrl(event.detailUrl);
       const detailLink = detailUrl
-        ? `<a class="mt-3 inline-flex rounded bg-[#0099ff] px-2 py-1 text-xs font-semibold text-white" href="${escapeHtml(detailUrl)}" target="_blank" rel="noopener noreferrer">View official details</a>`
+        ? `<a class="popup-cta mt-3 inline-flex rounded px-2 py-1 text-xs font-semibold" href="${escapeHtml(detailUrl)}" target="_blank" rel="noopener noreferrer">View official details</a>`
         : '<span class="text-xs text-muted">No official detail link available</span>';
-      return `<article class="min-w-56 text-sm text-slate-900">
+      return `<article class="popup-body min-w-56 text-sm">
         <h3 class="mb-2 text-base font-bold">${escapeHtml(event.name)}</h3>
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt class="font-semibold">Type</dt><dd>${escapeHtml(event.type)}</dd>
@@ -506,6 +563,13 @@
           <dt class="font-semibold">Source</dt><dd>${escapeHtml(event.sourceName || SOURCE_ADAPTERS[event.sourceId]?.label || event.sourceId)}</dd>
         </dl>${detailLink}
       </article>`;
+    }
+
+    function markerAccessibleName(event) {
+      const type = String(event?.type || 'Disaster').trim() || 'Disaster';
+      const name = String(event?.name || 'Unnamed event').trim() || 'Unnamed event';
+      const source = String(event?.sourceName || SOURCE_ADAPTERS[event?.sourceId]?.label || event?.sourceId || 'Unknown source').trim() || 'Unknown source';
+      return `${type}: ${name} (${source})`;
     }
 
     function createMarker(event) {
@@ -519,7 +583,14 @@
         iconAnchor: [9, 9],
         popupAnchor: [0, -10]
       });
-      return L.marker([event.latitude, event.longitude], { icon }).bindPopup(buildPopupContent(event));
+      const accessibleName = markerAccessibleName(event);
+      const marker = L.marker([event.latitude, event.longitude], {
+        icon,
+        title: accessibleName,
+        alt: accessibleName
+      });
+      marker.on('add', () => marker.getElement()?.setAttribute('aria-label', accessibleName));
+      return marker.bindPopup(buildPopupContent(event));
     }
 
     function renderMarkers(events) {
@@ -598,7 +669,38 @@
       return 'Unable to load — retry refresh.';
     }
 
-    async function refreshData() {
+    function fetchSourceWithTimeout(sourceId, parentSignal, timeoutMs) {
+      const sourceController = new AbortController();
+      let timeoutId;
+      let handleParentAbort;
+      const abortError = () => new DOMException('The refresh was aborted.', 'AbortError');
+      const parentAbort = new Promise((resolve, reject) => {
+        handleParentAbort = () => {
+          sourceController.abort(parentSignal?.reason);
+          reject(abortError());
+        };
+        if (parentSignal?.aborted) handleParentAbort();
+        else parentSignal?.addEventListener('abort', handleParentAbort, { once: true });
+      });
+      const timeout = new Promise((resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          sourceController.abort();
+          reject(new Error(`${SOURCE_ADAPTERS[sourceId].label} request timed out`));
+        }, timeoutMs);
+      });
+      let request;
+      try {
+        request = Promise.resolve(SOURCE_ADAPTERS[sourceId].fetchEvents(sourceController.signal));
+      } catch (error) {
+        request = Promise.reject(error);
+      }
+      return Promise.race([request, timeout, parentAbort]).finally(() => {
+        clearTimeout(timeoutId);
+        parentSignal?.removeEventListener('abort', handleParentAbort);
+      });
+    }
+
+    async function refreshData(requestTimeoutMs = SOURCE_REQUEST_TIMEOUT_MS) {
       const token = ++state.refreshToken;
       state.activeController?.abort();
       const controller = new AbortController();
@@ -609,7 +711,7 @@
       try {
         const settled = await Promise.allSettled(enabled.map(async sourceId => ({
           sourceId,
-          events: await SOURCE_ADAPTERS[sourceId].fetchEvents(controller.signal)
+          events: await fetchSourceWithTimeout(sourceId, controller.signal, requestTimeoutMs)
         })));
 
         if (token !== state.refreshToken) return;
@@ -644,11 +746,14 @@
     // Executable refresh checks. Run `runRefreshSelfTests()` from the browser
     // console after changing refresh lifecycle, provider status, or controls.
     async function runRefreshSelfTests() {
+      let tests = 0;
       const assert = (condition, message) => {
+        tests += 1;
         if (!condition) throw new Error(`Refresh self-test failed: ${message}`);
       };
       assert(typeof refreshData === 'function', 'refreshData is available');
       assert(typeof setLoading === 'function', 'setLoading is available');
+      if (state.isLoading) throw new Error('Refresh self-tests cannot run during a live refresh.');
 
       const eventFor = (id, sourceId, type = 'Wildfire') => ({
         id,
@@ -669,7 +774,6 @@
         events: state.events,
         sourceStatus: new Map(state.sourceStatus),
         refreshToken: state.refreshToken,
-        activeController: state.activeController,
         isLoading: state.isLoading,
         lastRefresh: state.lastRefresh
       };
@@ -743,20 +847,27 @@
         assert(state.events.length === 1 && state.events[0].id === 'newest-eonet', 'stale refreshes cannot overwrite the newest response');
         assert(!state.isLoading && document.querySelector('#loading-indicator').hidden, 'only the current refresh clears loading state in finally');
         assert(REFRESH_INTERVAL_MS === 10 * 60 * 1000 && state.refreshInterval !== null, 'a ten-minute refresh schedule is registered');
-        return { passed: true, tests: 19 };
       } finally {
         state.activeController?.abort();
+        const restorationToken = state.refreshToken + 1;
         Object.entries(originalFetchers).forEach(([sourceId, fetchEvents]) => { SOURCE_ADAPTERS[sourceId].fetchEvents = fetchEvents; });
         state.enabledSources = savedState.enabledSources;
         state.events = savedState.events;
         state.sourceStatus = savedState.sourceStatus;
-        state.refreshToken = savedState.refreshToken;
-        state.activeController = savedState.activeController;
-        state.isLoading = savedState.isLoading;
+        state.refreshToken = restorationToken;
+        state.activeController = null;
         state.lastRefresh = savedState.lastRefresh;
         sourceControls.forEach((control, index) => { control.checked = savedChecks[index]; });
+        setLoading(savedState.isLoading);
         render();
       }
+      assert(state.events === savedState.events && state.sourceStatus === savedState.sourceStatus, 'self-tests restore production event and status references');
+      assert(state.refreshToken > savedState.refreshToken, 'self-tests invalidate every harness refresh token');
+      assert(state.activeController === null, 'self-tests do not restore an aborted controller');
+      assert(state.isLoading === savedState.isLoading, 'self-tests restore the production loading state through setLoading');
+      assert(document.querySelector('#loading-indicator').hidden && getComputedStyle(document.querySelector('#loading-indicator')).display === 'none', 'self-tests leave the idle loading indicator visually hidden');
+      assert(!document.querySelector('#refresh-button').disabled && document.querySelector('#monitor-region').getAttribute('aria-busy') === 'false', 'self-tests leave production controls idle and available');
+      return { passed: true, tests };
     }
 
     function runUsageSelfTests() {
@@ -978,6 +1089,310 @@
       document.addEventListener('DOMContentLoaded', initializeMonitor, { once: true });
     } else {
       initializeMonitor();
+    }
+  </script>
+  <script>
+    // Aggregate regressions from the final browser review. Each check records
+    // its own failure so a RED run reports every independent broken behavior.
+    async function runFinalFixSelfTests() {
+      const failures = [];
+      let tests = 0;
+      const assert = (condition, message) => {
+        tests += 1;
+        if (!condition) failures.push(message);
+      };
+      const recordError = (label, error) => {
+        tests += 1;
+        failures.push(`${label}: ${error?.message || error}`);
+      };
+      const parseColor = value => {
+        const match = String(value).match(/[\d.]+/g);
+        if (!match || match.length < 3) return null;
+        return match.slice(0, 3).map(Number);
+      };
+      const contrastRatio = (foreground, background) => {
+        const channel = value => {
+          const normalized = value / 255;
+          return normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4;
+        };
+        const luminance = color => .2126 * channel(color[0]) + .7152 * channel(color[1]) + .0722 * channel(color[2]);
+        const first = parseColor(foreground);
+        const second = parseColor(background);
+        if (!first || !second) return 0;
+        const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+        return (lighter + .05) / (darker + .05);
+      };
+      const withFixtureFetch = async (payload, callback) => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => ({ ok: true, json: async () => payload });
+        try {
+          return await callback();
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      };
+
+      const savedTheme = document.documentElement.dataset.theme;
+      const savedPreference = readThemePreference();
+      const popupShell = document.createElement('div');
+      popupShell.className = 'leaflet-popup-content-wrapper';
+      const popupContent = document.createElement('div');
+      popupContent.className = 'leaflet-popup-content';
+      popupContent.innerHTML = buildPopupContent({
+        id: 'contrast-fixture', name: 'Contrast fixture', type: 'Flood', severity: 'Orange',
+        timestamp: '2026-01-03T00:00:00Z', latitude: 22.1, longitude: 78.5,
+        sourceId: 'gdacs', sourceName: 'GDACS UN', detailUrl: 'https://example.test/details'
+      });
+      popupShell.append(popupContent);
+      document.body.append(popupShell);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      try {
+        const indicator = document.querySelector('#loading-indicator');
+        const savedLoading = state.isLoading;
+        const savedStatuses = new Map(state.sourceStatus);
+        setLoading(false);
+        assert(indicator.hidden && getComputedStyle(indicator).display === 'none', 'hidden loading indicator has computed display:none');
+        setLoading(true);
+        assert(!indicator.hidden && getComputedStyle(indicator).display === 'flex', 'active loading indicator uses the intended flex layout');
+        state.sourceStatus = savedStatuses;
+        setLoading(savedLoading);
+
+        for (const theme of ['dark', 'light']) {
+          applyTheme(theme);
+          const rootStyle = getComputedStyle(document.documentElement);
+          const popupStyle = getComputedStyle(popupContent.querySelector('article'));
+          const ctaStyle = getComputedStyle(popupContent.querySelector('a'));
+          const refreshStyle = getComputedStyle(document.querySelector('#refresh-button'));
+          const accentStyle = getComputedStyle(document.querySelector('header .mb-1 > span:first-child'));
+          const focusTarget = document.querySelector('#theme-toggle');
+          focusTarget.focus();
+          const focusStyle = getComputedStyle(focusTarget);
+          const cluster = document.createElement('div');
+          cluster.className = 'marker-cluster marker-cluster-small';
+          cluster.innerHTML = '<div>8</div>';
+          document.body.append(cluster);
+          const themeTextProbe = document.createElement('span');
+          themeTextProbe.style.color = 'var(--text)';
+          document.body.append(themeTextProbe);
+          const clusterStyle = getComputedStyle(cluster.firstElementChild);
+          const popupBackground = getComputedStyle(popupShell).backgroundColor;
+          const pageBackground = rootStyle.backgroundColor;
+
+          assert(popupStyle.color === getComputedStyle(themeTextProbe).color, `${theme} popup body uses the theme foreground`);
+          assert(contrastRatio(popupStyle.color, popupBackground) >= 4.5, `${theme} popup body has at least 4.5:1 contrast`);
+          assert(contrastRatio(ctaStyle.color, ctaStyle.backgroundColor) >= 4.5, `${theme} popup CTA has at least 4.5:1 contrast`);
+          assert(contrastRatio(refreshStyle.color, refreshStyle.backgroundColor) >= 4.5, `${theme} refresh action has at least 4.5:1 contrast`);
+          assert(contrastRatio(accentStyle.color, pageBackground) >= 4.5, `${theme} non-marker accent text has at least 4.5:1 contrast`);
+          assert(focusStyle.outlineStyle !== 'none' && contrastRatio(focusStyle.outlineColor, pageBackground) >= 3, `${theme} focus indicator has at least 3:1 contrast`);
+          assert(contrastRatio(clusterStyle.color, clusterStyle.backgroundColor) >= 4.5, `${theme} cluster count has at least 4.5:1 contrast`);
+          cluster.remove();
+          themeTextProbe.remove();
+        }
+      } catch (error) {
+        recordError('theme and loading behavior', error);
+      } finally {
+        popupShell.remove();
+        applyTheme(savedTheme);
+        try {
+          if (savedPreference === null) localStorage.removeItem(THEME_KEY);
+          else localStorage.setItem(THEME_KEY, savedPreference);
+        } catch (error) { /* storage is optional */ }
+      }
+
+      try {
+        const usgsEvents = await withFixtureFetch({
+          features: [
+            ['null', null], ['undefined', undefined], ['false', false], ['true', true],
+            ['empty', ''], ['blank', '   '], ['nan', Number.NaN], ['infinity', Number.POSITIVE_INFINITY],
+            ['zero-number', 0], ['zero-string', '0'], ['finite-string', ' 2.5 ']
+          ].map(([id, mag], index) => ({
+            id: `usgs-${id}`,
+            properties: { title: `Fixture ${id}`, mag, time: 1767225600000, url: 'https://example.test/usgs' },
+            geometry: { coordinates: [10 + index, 20 + index, 0] }
+          }))
+        }, () => fetchUsgsEvents());
+        const severities = Object.fromEntries(usgsEvents.map(event => [event.id.replace('usgs-', ''), event.severity]));
+        ['null', 'undefined', 'false', 'true', 'empty', 'blank', 'nan', 'infinity'].forEach(id => {
+          assert(severities[id] === 'Not specified', `USGS ${id} magnitude remains missing`);
+        });
+        assert(severities['zero-number'] === 'Magnitude 0.0', 'USGS numeric zero remains a legitimate magnitude');
+        assert(severities['zero-string'] === 'Magnitude 0.0', 'USGS string zero remains a legitimate magnitude');
+        assert(severities['finite-string'] === 'Magnitude 2.5', 'USGS finite numeric strings remain supported');
+      } catch (error) {
+        recordError('USGS magnitude boundaries', error);
+      }
+
+      try {
+        const gdacsEvents = await withFixtureFetch({
+          features: [
+            {
+              id: 'nested-report',
+              properties: {
+                EventType: 'Flood', EventName: 'Nested report', AlertLevel: 'Orange', FromDate: '2026-01-03T00:00:00Z',
+                URL: { REPORT: 'https://example.test/report', details: 'https://example.test/details', geometry: 'https://example.test/geometry' }
+              },
+              geometry: { type: 'Point', coordinates: [78.5, 22.1] }
+            },
+            {
+              id: 'nested-details',
+              properties: {
+                EventType: 'Flood', EventName: 'Nested details', AlertLevel: 'Yellow', FromDate: '2026-01-04T00:00:00Z',
+                url: { Details: 'https://example.test/details-only', geometry: 'https://example.test/geometry-only' }
+              },
+              geometry: { type: 'Point', coordinates: [79.5, 23.1] }
+            },
+            {
+              id: 'unsafe-report',
+              properties: {
+                EventType: 'Flood', EventName: 'Unsafe report', AlertLevel: 'Red', FromDate: '2026-01-05T00:00:00Z',
+                url: { report: 'javascript:alert(1)', details: 'https://example.test/should-not-bypass-report', geometry: 'https://example.test/geometry' }
+              },
+              geometry: { type: 'Point', coordinates: [80.5, 24.1] }
+            },
+            {
+              id: 'blank-report',
+              properties: {
+                EventType: 'Flood', EventName: 'Blank report', AlertLevel: 'Yellow', FromDate: '2026-01-05T12:00:00Z',
+                url: { report: '   ', details: 'https://example.test/details-after-blank', geometry: 'https://example.test/geometry' }
+              },
+              geometry: { type: 'Point', coordinates: [81, 24.5] }
+            },
+            {
+              id: 'direct-link',
+              properties: {
+                EventType: 'Flood', EventName: 'Direct link', AlertLevel: 'Yellow', FromDate: '2026-01-06T00:00:00Z',
+                URL: 'https://example.test/direct'
+              },
+              geometry: { type: 'Point', coordinates: [81.5, 25.1] }
+            }
+          ]
+        }, () => fetchGdacsEvents());
+        const urls = Object.fromEntries(gdacsEvents.map(event => [event.id, event.detailUrl]));
+        assert(urls['nested-report'] === 'https://example.test/report', 'GDACS nested report URL is preferred case-insensitively');
+        assert(urls['nested-details'] === 'https://example.test/details-only', 'GDACS nested details URL is used when report is absent');
+        assert(urls['unsafe-report'] === null, 'GDACS rejects an unsafe selected nested URL');
+        assert(urls['blank-report'] === 'https://example.test/details-after-blank', 'GDACS nested details URL is used when report is blank');
+        assert(urls['direct-link'] === 'https://example.test/direct', 'GDACS preserves direct string URLs');
+      } catch (error) {
+        recordError('GDACS nested URLs', error);
+      }
+
+      try {
+        const accessibleEvent = {
+          id: 'accessible-marker', name: '<b>Named flood</b>', type: 'Flood', severity: 'Orange',
+          timestamp: '2026-01-03T00:00:00Z', latitude: 12, longitude: 22,
+          sourceId: 'gdacs', sourceName: 'GDACS UN', detailUrl: null
+        };
+        const marker = createMarker(accessibleEvent);
+        const expectedName = 'Flood: <b>Named flood</b> (GDACS UN)';
+        assert(marker.options.title === expectedName && marker.options.alt === expectedName, 'marker options carry the event-specific accessible name');
+        marker.addTo(map);
+        assert(marker.getElement()?.getAttribute('aria-label') === expectedName, 'focusable marker element exposes the event-specific accessible name');
+        marker.remove();
+      } catch (error) {
+        recordError('marker accessible name', error);
+      }
+
+      const originalFetcher = SOURCE_ADAPTERS.eonet.fetchEvents;
+      const savedSources = new Set(state.enabledSources);
+      const savedEvents = state.events;
+      const savedStatuses = new Map(state.sourceStatus);
+      const savedLastRefresh = state.lastRefresh;
+      try {
+        state.enabledSources = new Set(['eonet']);
+        SOURCE_ADAPTERS.eonet.fetchEvents = () => new Promise(() => {});
+        const outcome = await Promise.race([
+          refreshData(20).then(() => 'settled'),
+          new Promise(resolve => setTimeout(() => resolve('pending'), 100))
+        ]);
+        assert(outcome === 'settled' && state.sourceStatus.get('eonet')?.includes('Unable to load'), 'a never-settling provider times out without blocking the refresh');
+      } catch (error) {
+        recordError('provider request timeout', error);
+      } finally {
+        state.refreshToken += 1;
+        state.activeController?.abort();
+        state.activeController = null;
+        SOURCE_ADAPTERS.eonet.fetchEvents = originalFetcher;
+        state.enabledSources = savedSources;
+        state.events = savedEvents;
+        state.sourceStatus = savedStatuses;
+        state.lastRefresh = savedLastRefresh;
+        setLoading(false);
+        render();
+      }
+
+      assert(window.__themeBeforeBodyPaint === getPreferredTheme(), 'persisted theme is selected in the head before body paint');
+
+      if (failures.length) throw new Error(`Final-fix self-test failed:\n- ${failures.join('\n- ')}`);
+      return { passed: true, tests };
+    }
+
+    async function runSelfTestsFromQuery() {
+      const requested = new URLSearchParams(location.search).get('self-test');
+      if (!requested) return;
+      const publish = result => {
+        document.documentElement.dataset.selfTestResult = JSON.stringify(result);
+        console.log('SELF_TEST_RESULT', result);
+      };
+      try {
+        if (requested === 'refresh-live-guard') {
+          const controller = state.activeController;
+          let rejected = false;
+          try {
+            await runRefreshSelfTests();
+          } catch (error) {
+            rejected = /live refresh/i.test(String(error?.message || error));
+          }
+          if (!rejected) throw new Error('Refresh self-tests ran during a live refresh');
+          if (controller?.signal.aborted) throw new Error('Refresh self-tests aborted the live refresh controller');
+          publish({ passed: true, tests: 2 });
+          return;
+        }
+
+        const deadline = Date.now() + 30_000;
+        while (state.isLoading && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        if (state.isLoading) throw new Error('Initial live refresh did not settle before self-tests');
+        if (requested === 'popup-smoke') {
+          const marker = markerCluster.getLayers().find(layer => typeof layer.openPopup === 'function');
+          if (!marker) throw new Error('No live marker was available for popup smoke testing');
+          await new Promise(resolve => markerCluster.zoomToShowLayer(marker, () => {
+            marker.openPopup();
+            resolve();
+          }));
+          const popup = document.querySelector('.leaflet-popup-content');
+          if (!popup?.querySelector('.popup-body')) throw new Error('The live popup did not render');
+          publish({ passed: true, marker: marker.options.title, hasCta: Boolean(popup.querySelector('.popup-cta')) });
+          return;
+        }
+        const suites = {
+          adapter: runAdapterSelfTests,
+          rendering: runRenderingSelfTests,
+          refresh: runRefreshSelfTests,
+          usage: runUsageSelfTests,
+          final: runFinalFixSelfTests
+        };
+        if (requested === 'all') {
+          const results = {};
+          for (const [name, runSuite] of Object.entries(suites)) results[name] = await runSuite();
+          publish({ passed: true, suites: results });
+        } else if (suites[requested]) {
+          publish(await suites[requested]());
+        } else {
+          throw new Error(`Unknown self-test suite: ${requested}`);
+        }
+      } catch (error) {
+        publish({ passed: false, error: String(error?.stack || error) });
+      }
+    }
+
+    window.runFinalFixSelfTests = runFinalFixSelfTests;
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', runSelfTestsFromQuery, { once: true });
+    } else {
+      runSelfTestsFromQuery();
     }
   </script>
 </body>

@@ -263,6 +263,259 @@
     map.addLayer(markerCluster);
     window.map = map;
     window.markerCluster = markerCluster;
+
+    const TYPE_COLORS = Object.freeze({
+      Earthquake: '#ff4444', Wildfire: '#ff9100', Volcano: '#8b4513',
+      Storm: '#0099ff', Flood: '#66ccff'
+    });
+
+    const SEVERITY_COLORS = Object.freeze({
+      Red: '#ef4444', Orange: '#f97316', Yellow: '#eab308'
+    });
+
+    function parseGeoPoint(coordinates) {
+      if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+      const longitude = Number(coordinates[0]);
+      const latitude = Number(coordinates[1]);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+      return { latitude, longitude };
+    }
+
+    function normalizeType(value) {
+      if (typeof value !== 'string') return null;
+      const type = value.trim().toLowerCase();
+      if (!type) return null;
+      if (/earthquake|seismic/.test(type) || type === 'eq') return 'Earthquake';
+      if (/wildfire|wild fire|\bfire\b/.test(type) || type === 'wf') return 'Wildfire';
+      if (/volcan/.test(type) || type === 'vo') return 'Volcano';
+      if (/storm|cyclone|hurricane|typhoon/.test(type) || type === 'tc') return 'Storm';
+      if (/flood/.test(type) || type === 'fl') return 'Flood';
+      return null;
+    }
+
+    function normalizeSeverity(value) {
+      if (value === null || value === undefined) return 'Not specified';
+      const sanitized = String(value).replace(/[<>]/g, '').trim().replace(/\s+/g, ' ');
+      if (!sanitized) return 'Not specified';
+      const known = sanitized.toLowerCase();
+      if (known === 'red') return 'Red';
+      if (known === 'orange') return 'Orange';
+      if (known === 'yellow') return 'Yellow';
+      return sanitized;
+    }
+
+    function normalizeTimestamp(value) {
+      if (value === null || value === undefined || value === '') return null;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+
+    function safeUrl(value) {
+      if (typeof value !== 'string' || !value.trim()) return null;
+      try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+
+    function isWithinTimeRange(timestamp, range) {
+      if (range === 'all') return true;
+      const duration = { '7d': 7, '30d': 30 }[range];
+      const normalized = normalizeTimestamp(timestamp);
+      if (!duration || !normalized) return false;
+      return new Date(normalized).getTime() >= Date.now() - duration * 24 * 60 * 60 * 1000;
+    }
+
+    function getCaseInsensitive(object, ...keys) {
+      if (!object || typeof object !== 'object') return undefined;
+      const wanted = new Set(keys.map(key => key.toLowerCase()));
+      const actualKey = Object.keys(object).find(key => wanted.has(key.toLowerCase()));
+      return actualKey === undefined ? undefined : object[actualKey];
+    }
+
+    function requireSuccessfulResponse(response, sourceName) {
+      if (!response?.ok) throw new Error(`${sourceName} request failed${response?.status ? ` (${response.status})` : ''}`);
+      return response;
+    }
+
+    async function fetchEonetEvents(signal) {
+      const response = requireSuccessfulResponse(
+        await fetch('https://eonet.gsfc.nasa.gov/api/v3/events', { signal }), 'NASA EONET'
+      );
+      const payload = await response.json();
+      const events = Array.isArray(payload?.events) ? payload.events : [];
+      return events.flatMap(event => {
+        const geometry = [...(event.geometry || [])]
+          .reverse()
+          .find(item => item?.type === 'Point' && parseGeoPoint(item.coordinates));
+        const point = geometry ? parseGeoPoint(geometry.coordinates) : null;
+        const category = (Array.isArray(event?.categories) ? event.categories : [])
+          .map(item => normalizeType(item?.title || item?.id))
+          .find(Boolean);
+        if (!point || !category) return [];
+        return [{
+          id: String(event?.id || event?.title || `${point.latitude},${point.longitude}`),
+          name: String(event?.title || event?.id || 'Unnamed event'),
+          type: category,
+          severity: 'Not specified',
+          timestamp: normalizeTimestamp(geometry.date || event?.closed || event?.updated),
+          latitude: point.latitude,
+          longitude: point.longitude,
+          sourceId: 'eonet',
+          sourceName: 'NASA EONET',
+          detailUrl: safeUrl(event?.link || event?.sources?.[0]?.url)
+        }];
+      });
+    }
+
+    async function fetchUsgsEvents(signal) {
+      const response = requireSuccessfulResponse(
+        await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson', { signal }), 'USGS Earthquakes'
+      );
+      const payload = await response.json();
+      const features = Array.isArray(payload?.features) ? payload.features : [];
+      return features.flatMap(feature => {
+        const point = parseGeoPoint(feature?.geometry?.coordinates);
+        if (!point) return [];
+        const properties = feature?.properties || {};
+        const magnitude = Number(properties.mag);
+        return [{
+          id: String(feature?.id || properties.code || `${point.latitude},${point.longitude}`),
+          name: String(properties.title || 'Unnamed earthquake'),
+          type: 'Earthquake',
+          severity: Number.isFinite(magnitude) ? `Magnitude ${magnitude.toFixed(1)}` : 'Not specified',
+          timestamp: normalizeTimestamp(properties.time),
+          latitude: point.latitude,
+          longitude: point.longitude,
+          sourceId: 'usgs',
+          sourceName: 'USGS Earthquakes',
+          detailUrl: safeUrl(properties.url)
+        }];
+      });
+    }
+
+    function gdacsSeverity(value) {
+      const severity = normalizeSeverity(value);
+      return Object.hasOwn(SEVERITY_COLORS, severity) ? severity : 'Not specified';
+    }
+
+    async function fetchGdacsEvents(signal) {
+      const response = requireSuccessfulResponse(
+        await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH', { signal }), 'GDACS UN'
+      );
+      const payload = await response.json();
+      const events = Array.isArray(payload?.features) ? payload.features : (Array.isArray(payload) ? payload : []);
+      return events.flatMap(event => {
+        const properties = event?.properties && typeof event.properties === 'object' ? event.properties : event;
+        const geometry = event?.geometry || getCaseInsensitive(properties, 'geometry');
+        let point = parseGeoPoint(geometry?.coordinates);
+        if (!point) {
+          point = parseGeoPoint([
+            getCaseInsensitive(properties, 'longitude', 'lon', 'lng', 'geolon'),
+            getCaseInsensitive(properties, 'latitude', 'lat', 'geolat')
+          ]);
+        }
+        const type = normalizeType(getCaseInsensitive(properties, 'eventtype', 'type', 'event_type'));
+        if (!point || !type) return [];
+        const eventId = getCaseInsensitive(properties, 'eventid', 'event_id', 'id') || event?.id;
+        return [{
+          id: String(eventId || `${point.latitude},${point.longitude}`),
+          name: String(getCaseInsensitive(properties, 'eventname', 'name', 'title') || 'Unnamed event'),
+          type,
+          severity: gdacsSeverity(getCaseInsensitive(properties, 'alertlevel', 'alert_level', 'severity')),
+          timestamp: normalizeTimestamp(getCaseInsensitive(properties, 'fromdate', 'from_date', 'date', 'eventdate')),
+          latitude: point.latitude,
+          longitude: point.longitude,
+          sourceId: 'gdacs',
+          sourceName: 'GDACS UN',
+          detailUrl: safeUrl(getCaseInsensitive(properties, 'url', 'eventurl', 'link'))
+        }];
+      });
+    }
+
+    const SOURCE_ADAPTERS = Object.freeze({
+      eonet: { label: 'NASA EONET', fetchEvents: fetchEonetEvents },
+      usgs: { label: 'USGS Earthquakes', fetchEvents: fetchUsgsEvents },
+      gdacs: { label: 'GDACS UN', fetchEvents: fetchGdacsEvents }
+    });
+
+    // Executable fixture checks. Run `runAdapterSelfTests()` from the browser console
+    // after changing a provider schema or any normalization rule.
+    async function runAdapterSelfTests() {
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(`Adapter self-test failed: ${message}`);
+      };
+      const withFixtureFetch = async (payload, callback) => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => ({ ok: true, json: async () => payload });
+        try {
+          return await callback();
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      };
+
+      const tokyo = parseGeoPoint([139.76, 35.68]);
+      assert(tokyo?.latitude === 35.68 && tokyo.longitude === 139.76, 'GeoJSON longitude/latitude conversion');
+      assert(parseGeoPoint([181, 35]) === null, 'out-of-range coordinates are rejected');
+      [
+        ['earthquake', 'Earthquake'], ['seismic activity', 'Earthquake'],
+        ['wildfires', 'Wildfire'], ['fire incident', 'Wildfire'],
+        ['volcanic eruption', 'Volcano'], ['cyclone', 'Storm'],
+        ['hurricane', 'Storm'], ['typhoon', 'Storm'], ['flooding', 'Flood']
+      ].forEach(([value, expected]) => assert(normalizeType(value) === expected, `type alias ${value}`));
+      assert(normalizeSeverity('RED') === 'Red', 'red severity normalization');
+      assert(normalizeSeverity('orange') === 'Orange', 'orange severity normalization');
+      assert(normalizeSeverity('YELLOW') === 'Yellow', 'yellow severity normalization');
+      assert(escapeHtml('<tag attr="x">&\'') === '&lt;tag attr=&quot;x&quot;&gt;&amp;&#39;', 'HTML escaping');
+      assert(safeUrl('javascript:alert(1)') === null, 'non-HTTP URL rejection');
+
+      const eonetEvents = await withFixtureFetch({
+        events: [{
+          id: 'eonet-fixture', title: 'Fixture Fire', link: 'https://example.test/eonet',
+          categories: [{ title: 'Wildfires' }],
+          geometry: [
+            { type: 'Point', coordinates: [120, 45], date: '2026-01-01T00:00:00Z' },
+            { type: 'Polygon', coordinates: [] },
+            { type: 'Point', coordinates: [121, 46], date: '2026-01-02T00:00:00Z' }
+          ]
+        }]
+      }, () => fetchEonetEvents());
+      assert(eonetEvents.length === 1 && eonetEvents[0].latitude === 46 && eonetEvents[0].longitude === 121, 'EONET selects the newest Point geometry');
+      assert(eonetEvents[0].type === 'Wildfire' && eonetEvents[0].sourceId === 'eonet', 'EONET record normalization');
+
+      const usgsEvents = await withFixtureFetch({
+        features: [{
+          id: 'usgs-fixture', properties: { title: 'M 4.2 - Fixture', mag: 4.2, time: 1767225600000, url: 'https://example.test/usgs' },
+          geometry: { coordinates: [139.76, 35.68, 10] }
+        }]
+      }, () => fetchUsgsEvents());
+      assert(usgsEvents.length === 1 && usgsEvents[0].type === 'Earthquake', 'USGS GeoJSON feature normalization');
+      assert(usgsEvents[0].severity === 'Magnitude 4.2' && usgsEvents[0].latitude === 35.68, 'USGS magnitude and coordinates');
+
+      const gdacsEvents = await withFixtureFetch({
+        features: [{
+          id: 'gdacs-fixture', properties: {
+            EventType: 'Flood', EVENTNAME: 'Fixture Flood', AlertLevel: 'Orange',
+            FromDate: '2026-01-03T00:00:00Z', URL: 'https://example.test/gdacs', HTMLDescription: '<em>Fixture</em>'
+          }, geometry: { type: 'Point', coordinates: [78.5, 22.1] }
+        }]
+      }, () => fetchGdacsEvents());
+      assert(gdacsEvents.length === 1 && gdacsEvents[0].sourceId === 'gdacs', 'GDACS GeoJSON feature normalization');
+      assert(gdacsEvents[0].type === 'Flood' && gdacsEvents[0].severity === 'Orange' && gdacsEvents[0].longitude === 78.5, 'GDACS properties and coordinates');
+      return { passed: true, tests: 22 };
+    }
+
+    window.runAdapterSelfTests = runAdapterSelfTests;
   </script>
 </body>
 </html>

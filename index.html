@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="A live, multi-source global disaster monitoring dashboard.">
+  <title>Global Disaster Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23121212'/%3E%3Cpath d='M32 9 38 25l17 1-13 11 4 17-14-9-14 9 4-17L9 26l17-1z' fill='%23ff4444'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23f8f9fa'/%3E%3C/svg%3E" type="image/svg+xml">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <style>
+    :root {
+      --page: #f8f9fa;
+      --card: rgba(255, 255, 255, .84);
+      --card-solid: #ffffff;
+      --text: #17202a;
+      --muted: #5f6b76;
+      --border: rgba(23, 32, 42, .14);
+      --shadow: 0 16px 40px rgba(23, 32, 42, .15);
+      --popup: #ffffff;
+      --cluster: #334155;
+      --control: #ffffff;
+      --map-chrome: #ffffff;
+    }
+
+    [data-theme="dark"] {
+      --page: #121212;
+      --card: rgba(30, 30, 30, .88);
+      --card-solid: #1e1e1e;
+      --text: #f3f4f6;
+      --muted: #a3aab5;
+      --border: rgba(255, 255, 255, .13);
+      --shadow: 0 18px 46px rgba(0, 0, 0, .42);
+      --popup: #1e1e1e;
+      --cluster: #94a3b8;
+      --control: #262626;
+      --map-chrome: #202020;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-width: 320px; background: var(--page); }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% -10%, rgba(0, 153, 255, .10), transparent 34rem),
+        var(--page);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: background-color .2s ease, color .2s ease;
+    }
+
+    button, select, input { font: inherit; }
+
+    button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+      outline: 3px solid #66ccff;
+      outline-offset: 2px;
+    }
+
+    .dashboard-card {
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    .dashboard-card:hover { border-color: rgba(102, 204, 255, .4); }
+
+    .text-muted { color: var(--muted); }
+
+    #map {
+      height: 85vh;
+      min-height: 420px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      background: #dbeafe;
+      box-shadow: var(--shadow);
+    }
+
+    .leaflet-container { font: inherit; background: #dbeafe; }
+    .leaflet-control-zoom, .leaflet-control-attribution {
+      border: 1px solid var(--border) !important;
+      color: var(--text);
+      background: var(--map-chrome) !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .16) !important;
+    }
+    .leaflet-control-zoom a { color: var(--text) !important; background: var(--map-chrome) !important; }
+    .leaflet-control-attribution a { color: #0099ff; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { color: var(--text); background: var(--popup); }
+    .leaflet-popup-content a { color: #0099ff; }
+
+    .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+      color: #fff;
+      background-color: color-mix(in srgb, var(--cluster) 72%, transparent);
+    }
+    .marker-cluster div { background-color: var(--cluster); color: #fff; }
+
+    @media (max-width: 640px) {
+      #map { min-height: 520px; }
+      .map-overlay { position: static !important; width: 100%; margin-top: .75rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-3 sm:p-5 lg:p-6" id="monitor-region" aria-busy="false">
+    <header class="dashboard-card flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+      <div>
+        <div class="mb-1 flex flex-wrap items-center gap-2">
+          <span class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[.22em] text-[#66ccff]">
+            <span class="h-2 w-2 animate-pulse rounded-full bg-[#66ccff]" aria-hidden="true"></span>
+            Live operations view
+          </span>
+          <span class="rounded-full border border-[#66ccff]/30 bg-[#66ccff]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#66ccff]">Public feeds</span>
+        </div>
+        <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Global Disaster Monitor</h1>
+        <p class="mt-1 max-w-2xl text-sm text-muted">A unified view of earthquakes, wildfires, storms, floods, and volcanoes worldwide.</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="hidden text-xs text-muted sm:inline">Auto-refresh every 10 minutes</span>
+        <button id="theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false" class="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm font-semibold transition hover:border-[#66ccff]" title="Toggle color theme">
+          <span id="theme-icon" aria-hidden="true">☾</span><span id="theme-label">Dark</span>
+        </button>
+        <button id="refresh-button" type="button" class="inline-flex items-center gap-2 rounded-lg bg-[#0099ff] px-3 py-2 text-sm font-bold text-white shadow-lg shadow-[#0099ff]/20 transition hover:bg-[#007acc] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh disaster feeds">
+          <span aria-hidden="true">↻</span><span>Refresh feeds</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="dashboard-card flex flex-wrap items-end gap-x-5 gap-y-4 px-4 py-4 sm:px-6" aria-label="Monitoring controls">
+      <fieldset class="min-w-[12rem] flex-1">
+        <legend class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Data sources</legend>
+        <div class="flex flex-wrap gap-2" id="source-controls">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="eonet" checked class="accent-[#0099ff]"> NASA EONET</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="usgs" checked class="accent-[#0099ff]"> USGS</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm transition hover:border-[#66ccff]"><input type="checkbox" data-source-toggle="gdacs" checked class="accent-[#0099ff]"> GDACS</label>
+        </div>
+      </fieldset>
+      <fieldset class="min-w-[17rem] flex-[1.4]">
+        <legend class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Disaster types</legend>
+        <div class="flex flex-wrap gap-x-3 gap-y-2" id="type-controls">
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Earthquake" checked class="accent-[#ff4444]"> Earthquake</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Wildfire" checked class="accent-[#ff9100]"> Wildfire</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Volcano" checked class="accent-[#8b4513]"> Volcano</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Storm" checked class="accent-[#0099ff]"> Storm</label>
+          <label class="inline-flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" data-type-toggle="Flood" checked class="accent-[#66ccff]"> Flood</label>
+        </div>
+      </fieldset>
+      <label class="min-w-[11rem] text-sm font-semibold">
+        <span class="mb-2 block text-xs uppercase tracking-wider text-muted">Time range</span>
+        <select id="time-range" aria-label="Filter events by time range" class="w-full rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2 text-sm text-[var(--text)]">
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="all">All events</option>
+        </select>
+      </label>
+      <div id="loading-indicator" class="flex items-center gap-2 text-sm text-muted" role="status" aria-live="polite" hidden>
+        <span class="h-3 w-3 animate-spin rounded-full border-2 border-[#66ccff]/30 border-t-[#66ccff]" aria-hidden="true"></span>
+        <span>Updating live feeds…</span>
+      </div>
+    </section>
+
+    <section class="relative" aria-label="Disaster map and summaries">
+      <div id="map" aria-label="Interactive global disaster map"></div>
+      <aside class="map-overlay dashboard-card absolute right-4 top-4 z-[500] w-64 p-4" aria-label="Statistics">
+        <div class="flex items-end justify-between gap-3 border-b border-[var(--border)] pb-3">
+          <div><p class="text-xs font-bold uppercase tracking-wider text-muted">Visible events</p><span id="total-count" class="text-3xl font-bold">0</span></div>
+          <span class="rounded-full bg-[#66ccff]/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#66ccff]">Live</span>
+        </div>
+        <div class="mt-3"><h2 class="text-xs font-bold uppercase tracking-wider text-muted">By source</h2><div id="source-stats" class="mt-2 space-y-1 text-sm"></div></div>
+        <div class="mt-3"><h2 class="text-xs font-bold uppercase tracking-wider text-muted">By type</h2><div id="type-stats" class="mt-2 space-y-1 text-sm"></div></div>
+      </aside>
+      <aside class="map-overlay dashboard-card absolute bottom-4 right-4 z-[500] w-64 p-4" aria-label="Map legend">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-muted">Map legend</h2>
+        <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <span class="inline-flex items-center gap-2"><i class="h-3 w-3 rounded-full bg-[#ff4444]"></i>Earthquake</span>
+          <span class="inline-flex items-center gap-2"><i class="h-3 w-3 rounded-full bg-[#ff9100]"></i>Wildfire</span>
+          <span class="inline-flex items-center gap-2"><i class="h-3 w-3 rounded-full bg-[#8b4513]"></i>Volcano</span>
+          <span class="inline-flex items-center gap-2"><i class="h-3 w-3 rounded-full bg-[#0099ff]"></i>Storm</span>
+          <span class="inline-flex items-center gap-2"><i class="h-3 w-3 rounded-full bg-[#66ccff]"></i>Flood</span>
+        </div>
+        <div class="mt-3 border-t border-[var(--border)] pt-3 text-[11px] text-muted">
+          <p class="mb-1 font-semibold text-[var(--text)]">GDACS alert outline</p>
+          <p><span class="mr-1 text-[#ef4444]">●</span>Red &nbsp; <span class="mr-1 text-[#f97316]">●</span>Orange &nbsp; <span class="mr-1 text-[#eab308]">●</span>Yellow</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="dashboard-card px-4 py-4 sm:px-6" aria-label="Feed status">
+      <div class="flex flex-wrap items-center justify-between gap-2"><h2 class="text-sm font-bold">Feed status</h2><span class="text-xs text-muted" id="last-refresh">Waiting for first refresh</span></div>
+      <div id="source-statuses" class="mt-3 grid gap-2 text-sm sm:grid-cols-3" aria-live="polite">
+        <div class="rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2"><span class="font-semibold">NASA EONET</span><span class="ml-2 text-xs text-muted">Ready</span></div>
+        <div class="rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2"><span class="font-semibold">USGS Earthquakes</span><span class="ml-2 text-xs text-muted">Ready</span></div>
+        <div class="rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2"><span class="font-semibold">GDACS UN</span><span class="ml-2 text-xs text-muted">Ready</span></div>
+      </div>
+    </section>
+
+    <footer class="dashboard-card grid gap-5 px-4 py-5 text-sm text-muted sm:grid-cols-3 sm:px-6">
+      <div><h2 class="mb-2 font-bold text-[var(--text)]">Using the monitor</h2><p>Pan and zoom the map, then click a marker for details. Use the source, type, and time controls to narrow the view. Refresh feeds manually or wait for the ten-minute update.</p></div>
+      <div><h2 class="mb-2 font-bold text-[var(--text)]">Data providers</h2><p>NASA EONET tracks natural events, USGS provides recent earthquakes, and GDACS UN adds international alerts. Each feed is displayed independently.</p></div>
+      <div><h2 class="mb-2 font-bold text-[var(--text)]">Public-feed note</h2><p>Public APIs and OpenStreetMap tiles may enforce rate limits, CORS policies, outages, or schema changes. If direct <code>file://</code> requests fail, serve this file from a local static server or HTTPS.</p></div>
+    </footer>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script>
+    // Theme module: storage failures are non-fatal so private browsing still works.
+    const THEME_KEY = 'global-disaster-monitor-theme';
+
+    function readThemePreference() {
+      try { return localStorage.getItem(THEME_KEY); } catch (error) { return null; }
+    }
+
+    function writeThemePreference(theme) {
+      try { localStorage.setItem(THEME_KEY, theme); } catch (error) { /* storage is optional */ }
+    }
+
+    function getPreferredTheme() {
+      const saved = readThemePreference();
+      return saved === 'light' || saved === 'dark' ? saved : 'dark';
+    }
+
+    function applyTheme(theme) {
+      const nextTheme = theme === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = nextTheme;
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+      document.documentElement.style.colorScheme = nextTheme;
+      const toggle = document.querySelector('#theme-toggle');
+      const icon = document.querySelector('#theme-icon');
+      const label = document.querySelector('#theme-label');
+      if (toggle) {
+        toggle.setAttribute('aria-pressed', String(nextTheme === 'light'));
+        toggle.setAttribute('aria-label', nextTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+      }
+      if (icon) icon.textContent = nextTheme === 'dark' ? '☾' : '☀';
+      if (label) label.textContent = nextTheme === 'dark' ? 'Dark' : 'Light';
+      writeThemePreference(nextTheme);
+    }
+
+    function toggleTheme() {
+      applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+      if (typeof map !== 'undefined') window.setTimeout(() => map.invalidateSize(), 220);
+    }
+
+    applyTheme(getPreferredTheme());
+    document.querySelector('#theme-toggle').addEventListener('click', toggleTheme);
+
+    // Leaflet canvas and one shared cluster layer for all future provider markers.
+    const map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    const markerCluster = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false });
+    map.addLayer(markerCluster);
+    window.map = map;
+    window.markerCluster = markerCluster;
+  </script>
+</body>
+</html>

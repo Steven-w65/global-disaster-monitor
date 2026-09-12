@@ -454,6 +454,150 @@
       gdacs: { label: 'GDACS UN', fetchEvents: fetchGdacsEvents }
     });
 
+    const state = {
+      theme: getPreferredTheme(),
+      timeRange: '7d',
+      enabledSources: new Set(['eonet', 'usgs', 'gdacs']),
+      enabledTypes: new Set(Object.keys(TYPE_COLORS)),
+      events: [],
+      sourceStatus: new Map(),
+      refreshToken: 0,
+      activeController: null,
+      isLoading: false,
+      lastRefresh: null
+    };
+
+    function getFilteredEvents() {
+      return state.events.filter(event =>
+        state.enabledSources.has(event.sourceId) &&
+        state.enabledTypes.has(event.type) &&
+        isWithinTimeRange(event.timestamp, state.timeRange)
+      );
+    }
+
+    function formatEventTime(timestamp) {
+      const normalized = normalizeTimestamp(timestamp);
+      return normalized ? new Date(normalized).toLocaleString() : 'Not available';
+    }
+
+    function formatCoordinate(value) {
+      const coordinate = Number(value);
+      return Number.isFinite(coordinate) ? coordinate.toFixed(4) : 'Not available';
+    }
+
+    function buildPopupContent(event) {
+      const detailUrl = safeUrl(event.detailUrl);
+      const detailLink = detailUrl
+        ? `<a class="mt-3 inline-flex rounded bg-[#0099ff] px-2 py-1 text-xs font-semibold text-white" href="${escapeHtml(detailUrl)}" target="_blank" rel="noopener noreferrer">View official details</a>`
+        : '<span class="text-xs text-muted">No official detail link available</span>';
+      return `<article class="min-w-56 text-sm text-slate-900">
+        <h3 class="mb-2 text-base font-bold">${escapeHtml(event.name)}</h3>
+        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dt class="font-semibold">Type</dt><dd>${escapeHtml(event.type)}</dd>
+          <dt class="font-semibold">Severity</dt><dd>${escapeHtml(event.severity || 'Not specified')}</dd>
+          <dt class="font-semibold">Time</dt><dd>${escapeHtml(formatEventTime(event.timestamp))}</dd>
+          <dt class="font-semibold">Coordinates</dt><dd>${formatCoordinate(event.latitude)}, ${formatCoordinate(event.longitude)}</dd>
+          <dt class="font-semibold">Source</dt><dd>${escapeHtml(event.sourceName || SOURCE_ADAPTERS[event.sourceId]?.label || event.sourceId)}</dd>
+        </dl>${detailLink}
+      </article>`;
+    }
+
+    function createMarker(event) {
+      const fillColor = TYPE_COLORS[event.type] || '#64748b';
+      const isGdacsAlert = event.sourceId === 'gdacs' && Object.hasOwn(SEVERITY_COLORS, event.severity);
+      const borderColor = isGdacsAlert ? SEVERITY_COLORS[event.severity] : '#f8fafc';
+      const icon = L.divIcon({
+        className: 'disaster-marker',
+        html: `<span aria-hidden="true" style="display:block;width:18px;height:18px;border-radius:9999px;background:${fillColor};border:${isGdacsAlert ? '3px' : '2px'} solid ${borderColor};box-shadow:0 1px 4px rgba(15,23,42,.55)"></span>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        popupAnchor: [0, -10]
+      });
+      return L.marker([event.latitude, event.longitude], { icon }).bindPopup(buildPopupContent(event));
+    }
+
+    function renderMarkers(events) {
+      markerCluster.clearLayers();
+      markerCluster.addLayers(events.map(createMarker));
+    }
+
+    function renderStatistics(events) {
+      const countBy = key => events.reduce((counts, event) => {
+        counts.set(event[key], (counts.get(event[key]) || 0) + 1);
+        return counts;
+      }, new Map());
+      const sourceCounts = countBy('sourceId');
+      const typeCounts = countBy('type');
+      const total = document.querySelector('#total-count');
+      const sourceStats = document.querySelector('#source-stats');
+      const typeStats = document.querySelector('#type-stats');
+      if (total) total.textContent = String(events.length);
+      if (sourceStats) sourceStats.innerHTML = Object.entries(SOURCE_ADAPTERS).map(([sourceId, source]) => {
+        const count = sourceCounts.get(sourceId) || 0;
+        return `<div class="flex items-center justify-between ${count ? '' : 'text-muted'}"><span>${escapeHtml(source.label)}</span><span class="font-bold">${count}</span></div>`;
+      }).join('');
+      if (typeStats) typeStats.innerHTML = Object.keys(TYPE_COLORS).map(type => {
+        const count = typeCounts.get(type) || 0;
+        return `<div class="flex items-center justify-between ${count ? '' : 'text-muted'}"><span>${escapeHtml(type)}</span><span class="font-bold">${count}</span></div>`;
+      }).join('');
+    }
+
+    function sourceStatusMessage(sourceId) {
+      const status = state.sourceStatus.get(sourceId);
+      if (typeof status === 'string') return status;
+      if (status && typeof status === 'object') return String(status.message || status.status || status.state || 'Ready');
+      if (!state.enabledSources.has(sourceId)) return 'Disabled';
+      return state.isLoading ? 'Loading…' : 'Ready';
+    }
+
+    function renderSourceStatuses() {
+      const statuses = document.querySelector('#source-statuses');
+      const lastRefresh = document.querySelector('#last-refresh');
+      if (statuses) statuses.innerHTML = Object.entries(SOURCE_ADAPTERS).map(([sourceId, source]) => {
+        const message = sourceStatusMessage(sourceId);
+        const muted = message === 'Disabled' || message === 'Ready';
+        return `<div class="rounded-lg border border-[var(--border)] bg-[var(--control)] px-3 py-2"><span class="font-semibold">${escapeHtml(source.label)}</span><span class="ml-2 text-xs ${muted ? 'text-muted' : ''}">${escapeHtml(message)}</span></div>`;
+      }).join('');
+      if (lastRefresh) lastRefresh.textContent = state.lastRefresh
+        ? `Last refreshed ${formatEventTime(state.lastRefresh)}`
+        : 'Waiting for first refresh';
+    }
+
+    function render() {
+      const events = getFilteredEvents();
+      renderMarkers(events);
+      renderStatistics(events);
+      renderSourceStatuses();
+    }
+
+    function requestRefresh() {
+      if (typeof refreshData === 'function') return refreshData();
+      return undefined;
+    }
+
+    document.querySelectorAll('[data-source-toggle]').forEach(control => {
+      control.addEventListener('change', event => {
+        const sourceId = event.currentTarget.dataset.sourceToggle;
+        event.currentTarget.checked ? state.enabledSources.add(sourceId) : state.enabledSources.delete(sourceId);
+        requestRefresh();
+      });
+    });
+    document.querySelectorAll('[data-type-toggle]').forEach(control => {
+      control.addEventListener('change', event => {
+        const type = event.currentTarget.dataset.typeToggle;
+        event.currentTarget.checked ? state.enabledTypes.add(type) : state.enabledTypes.delete(type);
+        render();
+      });
+    });
+    document.querySelector('#time-range').addEventListener('change', event => {
+      state.timeRange = event.currentTarget.value;
+      render();
+    });
+    document.querySelector('#theme-toggle').addEventListener('click', () => {
+      state.theme = document.documentElement.dataset.theme;
+    });
+    document.querySelector('#refresh-button').addEventListener('click', requestRefresh);
+
     // Executable fixture checks. Run `runAdapterSelfTests()` from the browser console
     // after changing a provider schema or any normalization rule.
     async function runAdapterSelfTests() {
@@ -535,7 +679,73 @@
       return { passed: true, tests: 28 };
     }
 
+    // Executable rendering checks. Run `runRenderingSelfTests()` from the browser
+    // console after changing filters, map markers, statistics, or controls.
+    function runRenderingSelfTests() {
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(`Rendering self-test failed: ${message}`);
+      };
+      const now = Date.now();
+      const fixtures = [
+        { id: 'recent-eonet', name: '<b>Recent fire</b>', type: 'Wildfire', severity: 'Not specified', timestamp: new Date(now - 2 * 86_400_000).toISOString(), latitude: 10, longitude: 20, sourceId: 'eonet', sourceName: 'NASA EONET', detailUrl: 'https://example.test/eonet' },
+        { id: 'recent-usgs', name: 'Recent quake', type: 'Earthquake', severity: 'Magnitude 4.0', timestamp: new Date(now - 5 * 86_400_000).toISOString(), latitude: 11, longitude: 21, sourceId: 'usgs', sourceName: 'USGS Earthquakes', detailUrl: 'https://example.test/usgs' },
+        { id: 'month-gdacs', name: 'GDACS flood', type: 'Flood', severity: 'Orange', timestamp: new Date(now - 20 * 86_400_000).toISOString(), latitude: 12, longitude: 22, sourceId: 'gdacs', sourceName: 'GDACS UN', detailUrl: 'https://example.test/gdacs' },
+        { id: 'old-gdacs', name: 'Old storm', type: 'Storm', severity: 'Red', timestamp: new Date(now - 40 * 86_400_000).toISOString(), latitude: 13, longitude: 23, sourceId: 'gdacs', sourceName: 'GDACS UN', detailUrl: null },
+        { id: 'undated-eonet', name: 'Undated volcano', type: 'Volcano', severity: 'Not specified', timestamp: null, latitude: 14, longitude: 24, sourceId: 'eonet', sourceName: 'NASA EONET', detailUrl: null }
+      ];
+      const savedState = {
+        timeRange: state.timeRange,
+        enabledSources: new Set(state.enabledSources),
+        enabledTypes: new Set(state.enabledTypes),
+        events: state.events,
+        sourceStatus: new Map(state.sourceStatus)
+      };
+
+      try {
+        state.events = fixtures;
+        state.enabledSources = new Set(['eonet', 'usgs', 'gdacs']);
+        state.enabledTypes = new Set(Object.keys(TYPE_COLORS));
+        state.timeRange = '7d';
+        assert(getFilteredEvents().map(event => event.id).join(',') === 'recent-eonet,recent-usgs', '7-day filtering returns only dated recent events');
+
+        state.timeRange = '30d';
+        assert(getFilteredEvents().map(event => event.id).join(',') === 'recent-eonet,recent-usgs,month-gdacs', '30-day filtering includes the month-old event');
+
+        state.timeRange = 'all';
+        state.enabledSources.delete('gdacs');
+        state.enabledTypes.delete('Earthquake');
+        assert(getFilteredEvents().map(event => event.id).join(',') === 'recent-eonet,undated-eonet', 'source and type toggles combine with the all-time filter');
+
+        state.enabledSources.add('gdacs');
+        state.enabledTypes.add('Earthquake');
+        state.sourceStatus.set('gdacs', 'Loading…');
+        render();
+        assert(document.querySelector('#total-count').textContent === '5', 'rendered total reflects filtered events');
+        assert(document.querySelector('#source-stats').textContent.includes('NASA EONET') && document.querySelector('#source-stats').textContent.includes('2'), 'source statistics render grouped counts');
+        assert(document.querySelector('#type-stats').textContent.includes('Flood') && document.querySelector('#type-stats').textContent.includes('1'), 'type statistics render grouped counts');
+        assert(document.querySelector('#source-statuses').textContent.includes('GDACS UN') && document.querySelector('#source-statuses').textContent.includes('Loading…'), 'source status rendering includes registered labels and current status');
+        assert(markerCluster.getLayers().length === 5, 'render adds one marker per visible event');
+        render();
+        assert(markerCluster.getLayers().length === 5, 'a second render does not duplicate markers');
+
+        const marker = createMarker(fixtures[2]);
+        assert(marker.getLatLng().lat === 12 && marker.getLatLng().lng === 22, 'marker uses event latitude and longitude');
+        assert(marker.options.icon.options.html.includes(TYPE_COLORS.Flood) && marker.options.icon.options.html.includes('border:3px solid ' + SEVERITY_COLORS.Orange), 'marker fill and GDACS severity outline use canonical colors');
+        assert(createMarker(fixtures[0]).options.icon.options.html.includes('border:2px solid #f8fafc'), 'non-alert markers use the neutral contrasting border');
+        assert(buildPopupContent(fixtures[0]).includes('&lt;b&gt;Recent fire&lt;/b&gt;') && buildPopupContent(fixtures[0]).includes('rel="noopener noreferrer"'), 'popup escapes content and secures external links');
+        return { passed: true, tests: 13 };
+      } finally {
+        state.timeRange = savedState.timeRange;
+        state.enabledSources = savedState.enabledSources;
+        state.enabledTypes = savedState.enabledTypes;
+        state.events = savedState.events;
+        state.sourceStatus = savedState.sourceStatus;
+        render();
+      }
+    }
+
     window.runAdapterSelfTests = runAdapterSelfTests;
+    window.runRenderingSelfTests = runRenderingSelfTests;
   </script>
 </body>
 </html>

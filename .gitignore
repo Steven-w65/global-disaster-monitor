@@ -1,3 +1,10 @@
 .worktrees/
 .superpowers/
 .sites-runtime/
+node_modules/
+dist/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example

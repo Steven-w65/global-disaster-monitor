@@ -1,7 +1,7 @@
 import { THEME_KEY, TYPE_COLORS } from '../config.js';
 import { listSources } from '../sources/source-registry.js';
 
-const CONTROL_LABELS = Object.freeze({ usgs: 'USGS' });
+const CONTROL_LABELS = Object.freeze({ usgs: 'USGS', gdacs: 'GDACS' });
 const sourceControlLabel = source => CONTROL_LABELS[source.id] || source.label;
 
 function renderSourceControls(root) {

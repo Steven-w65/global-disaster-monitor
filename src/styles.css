@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --page: #121212;
+  --card: #1e1e1e;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --page: #f8f9fa;
+  --card: rgba(255, 255, 255, .84);
+  --card-solid: #ffffff;
+  --text: #17202a;
+  --muted: #5f6b76;
+  --border: rgba(23, 32, 42, .14);
+  --shadow: 0 16px 40px rgba(23, 32, 42, .15);
+  --popup: #ffffff;
+  --accent-text: #005f8f;
+  --accent-border: #0077b6;
+  --action-bg: #006aa6;
+  --action-hover: #00517f;
+  --action-fg: #ffffff;
+  --focus: #0077b6;
+  --cluster-bg: #334155;
+  --cluster-fg: #ffffff;
+  --control: #ffffff;
+  --map-chrome: #ffffff;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #121212;
+  --card: rgba(30, 30, 30, .88);
+  --card-solid: #1e1e1e;
+  --text: #f3f4f6;
+  --muted: #a3aab5;
+  --border: rgba(255, 255, 255, .13);
+  --shadow: 0 18px 46px rgba(0, 0, 0, .42);
+  --popup: #1e1e1e;
+  --accent-text: #7dd3fc;
+  --accent-border: #38bdf8;
+  --action-bg: #006aa6;
+  --action-hover: #00517f;
+  --action-fg: #ffffff;
+  --focus: #38bdf8;
+  --cluster-bg: #cbd5e1;
+  --cluster-fg: #17202a;
+  --control: #262626;
+  --map-chrome: #202020;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--page); }
+
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 10% -10%, rgba(0, 153, 255, .10), transparent 34rem),
+    var(--page);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+button, select, input { font: inherit; }
+
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.dashboard-card {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.dashboard-card:hover { border-color: color-mix(in srgb, var(--accent-border) 65%, transparent); }
+
+.text-muted { color: var(--muted); }
+.accent-copy { color: var(--accent-text); }
+.accent-badge {
+  border-color: color-mix(in srgb, var(--accent-border) 48%, transparent);
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent-border) 12%, transparent);
+}
+.accent-dot { background: var(--accent-text); }
+#theme-toggle:hover, #source-controls label:hover { border-color: var(--accent-border); }
+#refresh-button, .popup-cta {
+  color: var(--action-fg);
+  background: var(--action-bg);
+}
+#refresh-button:hover, .popup-cta:hover { background: var(--action-hover); }
+#loading-indicator[hidden] { display: none; }
+
+#map {
+  height: 85vh;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: #dbeafe;
+  box-shadow: var(--shadow);
+}
+
+.leaflet-container { font: inherit; background: #dbeafe; }
+.leaflet-control-zoom, .leaflet-control-attribution {
+  border: 1px solid var(--border) !important;
+  color: var(--text);
+  background: var(--map-chrome) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .16) !important;
+}
+.leaflet-control-zoom a { color: var(--text) !important; background: var(--map-chrome) !important; }
+.leaflet-control-attribution a { color: var(--accent-text); }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { color: var(--text); background: var(--popup); }
+.leaflet-popup-content a { color: var(--accent-text); }
+.leaflet-popup-content .popup-body { color: var(--text); }
+.leaflet-popup-content a.popup-cta { color: var(--action-fg); background: var(--action-bg); }
+
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+  color: var(--cluster-fg);
+  background-color: color-mix(in srgb, var(--cluster-bg) 72%, transparent);
+}
+.marker-cluster div { background-color: var(--cluster-bg); color: var(--cluster-fg); }
+
+@media (max-width: 640px) {
+  #map { min-height: 520px; }
+  .map-overlay { position: static !important; width: 100%; margin-top: .75rem; }
+}

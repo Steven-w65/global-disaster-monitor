@@ -19,13 +19,26 @@ function job(workflow, name) {
   return body.join('\n');
 }
 
+function rootBlock(workflow, name) {
+  const lines = workflow.split(/\r?\n/);
+  const start = lines.indexOf(`${name}:`);
+  if (start < 0) return [];
+
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^[^\s#]/.test(line)) break;
+    if (line.trim() && !/^\s*#/.test(line)) body.push(line);
+  }
+  return body;
+}
+
 describe('deployment configuration', () => {
   it('runs the exact verification contract for pushes and pull requests', () => {
     const verify = read('.github/workflows/verify.yml');
     const verifyJob = job(verify, 'verify');
 
-    expect(verify).toMatch(/^on:\r?\n  pull_request:\s*\r?\n  push:\s*$/m);
-    expect(verify).toMatch(/^permissions:\r?\n  contents: read$/m);
+    expect(rootBlock(verify, 'on')).toEqual(['  pull_request:', '  push:']);
+    expect(rootBlock(verify, 'permissions')).toEqual(['  contents: read']);
     expect(verifyJob).toMatch(/^      - uses: actions\/checkout@v4$/m);
     expect(verifyJob).toMatch(setupNodeStep);
     expect(verifyJob).toMatch(runStep('npm ci'));
@@ -38,8 +51,16 @@ describe('deployment configuration', () => {
     const build = job(deploy, 'build');
     const deployJob = job(deploy, 'deploy');
 
-    expect(deploy).toMatch(/^on:\r?\n  push:\r?\n    branches: \[main\]\r?\n  workflow_dispatch:\s*$/m);
-    expect(deploy).toMatch(/^permissions:\r?\n  contents: read\r?\n  pages: write\r?\n  id-token: write$/m);
+    expect(rootBlock(deploy, 'on')).toEqual([
+      '  push:',
+      '    branches: [main]',
+      '  workflow_dispatch:'
+    ]);
+    expect(rootBlock(deploy, 'permissions')).toEqual([
+      '  contents: read',
+      '  pages: write',
+      '  id-token: write'
+    ]);
     expect(deploy).toMatch(/^concurrency:\r?\n  group: pages\r?\n  cancel-in-progress: false$/m);
     expect(build).toMatch(/^      - uses: actions\/checkout@v4$/m);
     expect(build).toMatch(setupNodeStep);

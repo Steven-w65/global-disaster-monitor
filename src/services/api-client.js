@@ -1,5 +1,9 @@
+const SAFE_CLASSIFIED_ERROR = Symbol('safe classified error');
+
 function classifiedError(code, message, fields = {}) {
-  return Object.assign(new Error(message), { code, ...fields });
+  const error = Object.assign(new Error(message), { code, ...fields });
+  Object.defineProperty(error, SAFE_CLASSIFIED_ERROR, { value: true });
+  return error;
 }
 
 export async function fetchJson(request, {
@@ -47,7 +51,7 @@ export async function fetchJson(request, {
       if (signal?.aborted || controller.signal.aborted) {
         throw classifiedError('ABORTED', 'The request was cancelled.');
       }
-      if (error?.code) throw error;
+      if (error?.[SAFE_CLASSIFIED_ERROR]) throw error;
       throw classifiedError('NETWORK_ERROR', 'The request could not be completed.');
     }
 
@@ -64,7 +68,7 @@ export async function fetchJson(request, {
       if (signal?.aborted || controller.signal.aborted) {
         throw classifiedError('ABORTED', 'The request was cancelled.');
       }
-      if (error?.code) throw error;
+      if (error?.[SAFE_CLASSIFIED_ERROR]) throw error;
       throw classifiedError('INVALID_JSON', 'The service returned invalid JSON.');
     }
   } finally {

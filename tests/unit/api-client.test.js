@@ -47,6 +47,33 @@ describe('fetchJson', () => {
     await expect(request).rejects.not.toMatchObject({ message: expect.stringContaining('secret') });
   });
 
+  it.each([
+    ['transport', () => Promise.reject(Object.assign(
+      new Error('https://example.gov/feed?token=secret'),
+      { code: 'ECONNRESET' }
+    )), 'NETWORK_ERROR', 'The request could not be completed.'],
+    ['parser', () => Promise.resolve({
+      ok: true,
+      json: () => Promise.reject(Object.assign(
+        new Error('https://example.gov/feed?token=secret'),
+        { code: 'ECONNRESET' }
+      ))
+    }), 'INVALID_JSON', 'The service returned invalid JSON.']
+  ])('normalizes an arbitrary coded %s error without leaking its message', async (
+    _boundary,
+    fetchImpl,
+    code,
+    message
+  ) => {
+    const request = fetchJson({ url: 'https://example.gov/feed?token=secret', options: {} }, {
+      fetchImpl,
+      timeoutMs: 50
+    });
+
+    await expect(request).rejects.toMatchObject({ code, message });
+    await expect(request).rejects.not.toMatchObject({ message: expect.stringMatching(/https:|secret|token/i) });
+  });
+
   it('propagates a parent cancellation as a classified abort', async () => {
     const parent = new AbortController();
     const fetchImpl = vi.fn((_url, { signal }) => new Promise((resolve, reject) => {

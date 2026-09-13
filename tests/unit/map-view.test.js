@@ -127,6 +127,60 @@ describe('map view', () => {
     expect(map.removeLayer).toHaveBeenLastCalledWith(second);
   });
 
+  it('submits bounded bulk batches and makes a cancelled stale batch a no-op', () => {
+    const { leaflet, map } = setup();
+    const first = {
+      addLayers: vi.fn(),
+      clearLayers: vi.fn(),
+      addTo: vi.fn().mockReturnThis()
+    };
+    const second = {
+      addLayers: vi.fn(),
+      clearLayers: vi.fn(),
+      addTo: vi.fn().mockReturnThis()
+    };
+    const third = {
+      addLayers: vi.fn(),
+      clearLayers: vi.fn(),
+      addTo: vi.fn().mockReturnThis()
+    };
+    const markerClusterFactory = vi.fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second)
+      .mockReturnValueOnce(third);
+    const callbacks = [];
+    const setTimer = vi.spyOn(globalThis, 'setTimeout').mockImplementation(callback => {
+      callbacks.push(callback);
+      return 47;
+    });
+    const clearTimer = vi.spyOn(globalThis, 'clearTimeout');
+    const view = createMapView({
+      element: document.createElement('div'),
+      leaflet,
+      markerClusterFactory,
+      colors: TYPE_COLORS
+    });
+
+    view.render(Array.from({ length: 401 }, (_, index) => event({ id: `usgs:old-${index}` })));
+
+    expect(first.addLayers).toHaveBeenCalledTimes(1);
+    expect(first.addLayers.mock.calls[0][0]).toHaveLength(200);
+    expect(setTimer).toHaveBeenCalledTimes(1);
+
+    view.render(Array.from({ length: 401 }, (_, index) => event({ id: `usgs:new-${index}` })));
+    callbacks[0]();
+    view.render([event({ id: 'usgs:latest' })]);
+
+    expect(clearTimer).toHaveBeenCalledWith(47);
+    expect(clearTimer).toHaveBeenCalledTimes(2);
+    expect(first.addLayers).toHaveBeenCalledTimes(1);
+    expect(second.addLayers).toHaveBeenCalledTimes(1);
+    expect(second.addLayers.mock.calls[0][0]).toHaveLength(200);
+    expect(third.addLayers).toHaveBeenCalledTimes(1);
+    expect(third.addLayers.mock.calls[0][0]).toHaveLength(1);
+    expect(map.removeLayer).toHaveBeenCalledWith(first);
+  });
+
   it.each([
     ['Red', SEVERITY_COLORS.red],
     ['Orange', SEVERITY_COLORS.orange],

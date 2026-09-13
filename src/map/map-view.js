@@ -1,6 +1,8 @@
 import { SEVERITY_COLORS } from '../config.js';
 import { buildPopupContent, markerAccessibleName } from '../ui/popup.js';
 
+const MARKER_BATCH_SIZE = 200;
+
 function createPointIcon(event, colors, leaflet) {
   const fillColor = colors[event.type] || '#64748b';
   const severityColor = event.sourceId === 'gdacs'
@@ -35,6 +37,37 @@ export function createMapView({
   let currentTheme = null;
   let destroyed = false;
   let hasRendered = false;
+  let pendingBatchTimer = null;
+  let renderGeneration = 0;
+
+  const cancelPendingBatches = () => {
+    renderGeneration += 1;
+    if (pendingBatchTimer !== null) {
+      clearTimeout(pendingBatchTimer);
+      pendingBatchTimer = null;
+    }
+    return renderGeneration;
+  };
+
+  const addMarkerBatches = (cluster, markers, generation) => {
+    let offset = 0;
+    const addNextBatch = () => {
+      if (destroyed || generation !== renderGeneration) return;
+      const batch = markers.slice(offset, offset + MARKER_BATCH_SIZE);
+      cluster.addLayers(batch);
+      offset += batch.length;
+      if (offset < markers.length) {
+        let timer;
+        timer = setTimeout(() => {
+          if (destroyed || generation !== renderGeneration) return;
+          if (pendingBatchTimer === timer) pendingBatchTimer = null;
+          addNextBatch();
+        }, 0);
+        pendingBatchTimer = timer;
+      }
+    };
+    addNextBatch();
+  };
 
   const createMarker = event => {
     const [longitude, latitude] = event.geometry.coordinates;
@@ -52,6 +85,7 @@ export function createMapView({
   return Object.freeze({
     render(events) {
       if (destroyed) return;
+      const generation = cancelPendingBatches();
       if (hasRendered) {
         markerCluster.clearLayers();
         map.removeLayer(markerCluster);
@@ -61,7 +95,7 @@ export function createMapView({
         markerCluster.clearLayers();
         hasRendered = true;
       }
-      markerCluster.addLayers(events.map(createMarker));
+      addMarkerBatches(markerCluster, events.map(createMarker), generation);
     },
 
     setTheme(theme) {
@@ -72,6 +106,7 @@ export function createMapView({
 
     destroy() {
       if (destroyed) return;
+      cancelPendingBatches();
       destroyed = true;
       markerCluster.clearLayers();
       map.removeLayer(markerCluster);

@@ -8,7 +8,7 @@ and provider-specific loading status.
 
 ## Prerequisites
 
-Use Node.js 22.12 or newer. npm is supplied with Node.js.
+Use Node.js 22.22.2 or newer in the 22.x line, 24.15.0 or newer in the 24.x line, or 26.0.0 or newer. npm is supplied with Node.js. This matches the supported runtime range of the pinned jsdom release and includes the Node 24 version used in CI.
 
 ## Run locally
 
@@ -27,12 +27,14 @@ from the browser, so data availability can differ by network and provider.
 Run the complete production verification path before delivery:
 
 ```bash
+npx playwright install --with-deps chromium
 npm run verify
 ```
 
-`npm run verify` runs the unit suite, creates a production build, and executes
-the Playwright browser suite against that build. To create only the static
-production artifact, run:
+Install Playwright's managed Chromium once before running verification on a
+fresh development machine. `npm run verify` runs the unit suite, creates a
+production build, and executes the Playwright browser suite against that build.
+To create only the static production artifact, run:
 
 ```bash
 npm run build

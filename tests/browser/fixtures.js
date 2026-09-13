@@ -45,7 +45,7 @@ function createPayloads() {
         title: 'Fixture storm',
         category: 'Severe Storms',
         date: isoDate(2 * DAY_MS),
-        coordinates: [-74.5, 18.25]
+        coordinates: [151.4, -33.6]
       }),
       eonetEvent({
         id: 'eonet-old-fire',

@@ -16,8 +16,18 @@ const event = overrides => ({
 });
 
 function setup() {
-  const cluster = { addLayer: vi.fn(), clearLayers: vi.fn(), addTo: vi.fn().mockReturnThis() };
-  const map = { setView: vi.fn().mockReturnThis(), invalidateSize: vi.fn(), remove: vi.fn() };
+  const cluster = {
+    addLayer: vi.fn(),
+    addLayers: vi.fn(),
+    clearLayers: vi.fn(),
+    addTo: vi.fn().mockReturnThis()
+  };
+  const map = {
+    setView: vi.fn().mockReturnThis(),
+    invalidateSize: vi.fn(),
+    removeLayer: vi.fn(),
+    remove: vi.fn()
+  };
   const tileLayer = { addTo: vi.fn().mockReturnThis() };
   const markerElements = [];
   const markers = [];
@@ -42,7 +52,7 @@ function setup() {
 }
 
 describe('map view', () => {
-  it('initializes OpenStreetMap and replaces clustered markers without mutating GeoJSON coordinates', () => {
+  it('initializes OpenStreetMap and bulk-replaces clustered markers without mutating GeoJSON coordinates', () => {
     const { cluster, leaflet, map, markerElements, markers, tileLayer } = setup();
     const element = document.createElement('div');
     const point = event({ geometry: { type: 'Point', coordinates: [151.2, -33.8] } });
@@ -70,11 +80,51 @@ describe('map view', () => {
     }));
     expect(markerElements[0].getAttribute('aria-label')).toBe('Earthquake: Test event (USGS Earthquakes)');
     expect(markers[0].bindPopup).toHaveBeenCalledWith(expect.stringContaining('Test event'));
-    expect(cluster.addLayer).toHaveBeenCalledWith(markers[0]);
+    expect(cluster.addLayers).toHaveBeenCalledWith([markers[0]]);
+    expect(cluster.addLayer).not.toHaveBeenCalled();
 
     view.render([]);
     expect(cluster.clearLayers).toHaveBeenCalledTimes(2);
-    expect(cluster.addLayer).toHaveBeenCalledTimes(1);
+    expect(cluster.addLayers).toHaveBeenCalledTimes(2);
+    expect(cluster.addLayers).toHaveBeenLastCalledWith([]);
+  });
+
+  it('detaches an interrupted bulk group before rendering newer markers or destroying the map', () => {
+    const { leaflet, map } = setup();
+    const first = {
+      addLayer: vi.fn(),
+      addLayers: vi.fn(),
+      clearLayers: vi.fn(),
+      addTo: vi.fn().mockReturnThis()
+    };
+    const second = {
+      addLayer: vi.fn(),
+      addLayers: vi.fn(),
+      clearLayers: vi.fn(),
+      addTo: vi.fn().mockReturnThis()
+    };
+    const markerClusterFactory = vi.fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+    const view = createMapView({
+      element: document.createElement('div'),
+      leaflet,
+      markerClusterFactory,
+      colors: TYPE_COLORS
+    });
+
+    view.render([event({ id: 'usgs:old' })]);
+    view.render([event({ id: 'usgs:new' })]);
+
+    expect(first.clearLayers).toHaveBeenCalledTimes(2);
+    expect(map.removeLayer).toHaveBeenCalledWith(first);
+    expect(second.addTo).toHaveBeenCalledWith(map);
+    expect(second.addLayers).toHaveBeenCalledTimes(1);
+
+    view.destroy();
+
+    expect(second.clearLayers).toHaveBeenCalledTimes(1);
+    expect(map.removeLayer).toHaveBeenLastCalledWith(second);
   });
 
   it.each([

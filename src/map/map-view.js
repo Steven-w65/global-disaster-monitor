@@ -30,10 +30,11 @@ export function createMapView({
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
-  const markerCluster = markerClusterFactory();
+  let markerCluster = markerClusterFactory();
   markerCluster.addTo(map);
   let currentTheme = null;
   let destroyed = false;
+  let hasRendered = false;
 
   const createMarker = event => {
     const [longitude, latitude] = event.geometry.coordinates;
@@ -51,8 +52,16 @@ export function createMapView({
   return Object.freeze({
     render(events) {
       if (destroyed) return;
-      markerCluster.clearLayers();
-      for (const event of events) markerCluster.addLayer(createMarker(event));
+      if (hasRendered) {
+        markerCluster.clearLayers();
+        map.removeLayer(markerCluster);
+        markerCluster = markerClusterFactory();
+        markerCluster.addTo(map);
+      } else {
+        markerCluster.clearLayers();
+        hasRendered = true;
+      }
+      markerCluster.addLayers(events.map(createMarker));
     },
 
     setTheme(theme) {
@@ -65,6 +74,7 @@ export function createMapView({
       if (destroyed) return;
       destroyed = true;
       markerCluster.clearLayers();
+      map.removeLayer(markerCluster);
       map.remove();
     }
   });

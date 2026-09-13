@@ -148,10 +148,42 @@ describe('dashboard renderers', () => {
     expect(mapView.setTheme).toHaveBeenLastCalledWith('dark');
     store.setTheme('light');
     expect(mapView.setTheme).toHaveBeenLastCalledWith('light');
-    expect(mapView.render).toHaveBeenCalledTimes(2);
+    expect(mapView.render).toHaveBeenCalledTimes(1);
 
     unsubscribe();
     store.setTimeRange('all');
+    expect(mapView.render).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves map layers when a theme or source-status publication leaves visible events unchanged', () => {
+    const visibleEvent = {
+      id: 'eonet:test', sourceId: 'eonet', sourceName: 'NASA EONET', name: 'Test fire',
+      type: 'Wildfire', severity: 'Not specified', timestamp: '2026-09-12T00:00:00.000Z',
+      geometry: { type: 'Point', coordinates: [20, 10] }, detailUrl: null
+    };
+    const store = createStore({
+      sourceIds: sources.map(source => source.id),
+      initialState: { eventsBySource: { eonet: [visibleEvent] } }
+    });
+    const mapView = { render: vi.fn(), setTheme: vi.fn() };
+    const unsubscribe = createAppRenderer({
+      root: document,
+      store,
+      mapView,
+      sources,
+      now: () => new Date('2026-09-13T00:00:00.000Z')
+    });
+
+    store.setTheme('light');
+    store.beginRefresh(1, ['usgs']);
+
+    expect(mapView.render).toHaveBeenCalledTimes(1);
+    expect(mapView.setTheme).toHaveBeenLastCalledWith('light');
+
+    store.setTypeEnabled('Wildfire', false);
     expect(mapView.render).toHaveBeenCalledTimes(2);
+    expect(mapView.render).toHaveBeenLastCalledWith([]);
+
+    unsubscribe();
   });
 });

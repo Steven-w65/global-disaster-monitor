@@ -75,8 +75,25 @@ describe('deployment configuration', () => {
 
   it('documents exact local and production commands', () => {
     const readme = read('README.md');
-    for (const command of ['npm install', 'npm run dev', 'npm run verify', 'npm run build']) {
+    for (const command of [
+      'npm install',
+      'npm run dev',
+      'npx playwright install --with-deps chromium',
+      'npm run verify',
+      'npm run build'
+    ]) {
       expect(readme).toContain(command);
     }
+  });
+
+  it('declares the Node versions supported by jsdom while retaining the Node 24 CI target', () => {
+    const manifest = JSON.parse(read('package.json'));
+    const lockfile = JSON.parse(read('package-lock.json'));
+    const supportedRange = '^22.22.2 || ^24.15.0 || >=26.0.0';
+
+    expect(manifest.engines.node).toBe(supportedRange);
+    expect(lockfile.packages[''].engines.node).toBe(supportedRange);
+    expect(read('README.md')).toContain('Node.js 22.22.2 or newer in the 22.x line, 24.15.0 or newer in the 24.x line, or 26.0.0 or newer.');
+    expect(job(read('.github/workflows/verify.yml'), 'verify')).toMatch(/node-version: 24/);
   });
 });

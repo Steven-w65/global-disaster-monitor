@@ -1,6 +1,9 @@
 import { THEME_KEY, TYPE_COLORS } from '../config.js';
 import { listSources } from '../sources/source-registry.js';
 
+const CONTROL_LABELS = Object.freeze({ usgs: 'USGS' });
+const sourceControlLabel = source => CONTROL_LABELS[source.id] || source.label;
+
 function renderSourceControls(root) {
   const container = root.querySelector('#source-controls');
   if (!container) return;
@@ -12,7 +15,7 @@ function renderSourceControls(root) {
     input.type = 'checkbox';
     input.dataset.sourceToggle = source.id;
     input.className = 'accent-[#0099ff]';
-    label.append(input, ` ${source.label}`);
+    label.append(input, ` ${sourceControlLabel(source)}`);
     container.append(label);
   }
 }

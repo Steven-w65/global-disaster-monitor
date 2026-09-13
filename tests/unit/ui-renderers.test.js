@@ -96,6 +96,7 @@ describe('dashboard renderers', () => {
     const requestRefresh = vi.fn();
     const dispose = bindControls(document, { store, requestRefresh });
     expect(document.querySelector('#source-controls').textContent).toContain('NASA EONET');
+    expect(document.querySelector('[data-source-toggle="usgs"]').parentElement.textContent.trim()).toBe('USGS');
     expect(document.querySelector('#type-controls').textContent).toContain(Object.keys(TYPE_COLORS)[0]);
 
     const sourceToggle = document.querySelector('[data-source-toggle="eonet"]');

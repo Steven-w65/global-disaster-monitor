@@ -56,6 +56,10 @@ describe('map view', () => {
       attribution: '&copy; OpenStreetMap contributors'
     });
     expect(tileLayer.addTo).toHaveBeenCalledWith(map);
+    expect(leaflet.markerClusterGroup).toHaveBeenCalledWith({
+      chunkedLoading: true,
+      showCoverageOnHover: false
+    });
     expect(cluster.addTo).toHaveBeenCalledWith(map);
     expect(cluster.clearLayers).toHaveBeenCalledTimes(1);
     expect(point.geometry.coordinates).toEqual([151.2, -33.8]);

@@ -19,7 +19,10 @@ function createPointIcon(event, colors, leaflet) {
 export function createMapView({
   element,
   leaflet,
-  markerClusterFactory = () => leaflet.markerClusterGroup(),
+  markerClusterFactory = () => leaflet.markerClusterGroup({
+    chunkedLoading: true,
+    showCoverageOnHover: false
+  }),
   colors
 }) {
   const map = leaflet.map(element, { worldCopyJump: true }).setView([0, 0], 2);

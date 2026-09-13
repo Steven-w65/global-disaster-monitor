@@ -25,6 +25,16 @@ export const eonetPayload = {
     categories: [{ title: 'Volcanic eruption' }],
     geometry: [{ date: '2026-09-12T09:00:00Z', type: 'Point', coordinates: ['140.1', '35.2'] }]
   }, {
+    id: 'EONET_MIXED',
+    title: 'Mixed geometry event',
+    link: 'https://example.test/eonet-mixed',
+    categories: [{ title: 'Wildfires' }],
+    geometry: [
+      { type: 'Point', coordinates: [120, 45], date: '2026-01-01T00:00:00Z' },
+      { type: 'Polygon', coordinates: [] },
+      { type: 'Point', coordinates: [121, 46], date: '2026-01-02T00:00:00Z' }
+    ]
+  }, {
     id: 'EONET_MISSING_DATE',
     title: 'Missing date',
     categories: [{ title: 'Flooding' }],

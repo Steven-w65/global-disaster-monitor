@@ -16,6 +16,14 @@ export const gdacsPayload = {
     geometry: { type: 'Point', coordinates: [91, 24] }
   }, {
     type: 'Feature',
+    id: 'uppercase-report',
+    properties: {
+      EventName: 'Uppercase report', EventType: 'FL', AlertLevel: 'Orange', FromDate: '2026-09-12T12:30:00Z',
+      URL: { REPORT: 'https://example.test/uppercase-report', details: 'https://example.test/unused-details' }
+    },
+    geometry: { type: 'Point', coordinates: [78.5, 22.1] }
+  }, {
+    type: 'Feature',
     id: 'nested-details',
     properties: {
       EventName: 'Nested details', EventType: 'TC', AlertLevel: 'red',

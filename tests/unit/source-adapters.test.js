@@ -14,12 +14,23 @@ describe.each([
 ])('%s adapter', (id, adapter, payload) => {
   it('implements the source contract and returns validated events', () => {
     expect(adapter.id).toBe(id);
+    expect(adapter.label).toEqual(expect.any(String));
+    expect(adapter.label.length).toBeGreaterThan(0);
     expect(adapter.defaultEnabled).toBe(true);
+    expect(adapter.supportedTypes).toEqual(expect.any(Array));
+    expect(adapter.supportedTypes.length).toBeGreaterThan(0);
+    expect(adapter.transport).toEqual(expect.any(String));
+    expect(adapter.transport.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(adapter)).toBe(true);
+    expect(Object.isFrozen(adapter.supportedTypes)).toBe(true);
     expect(adapter.buildRequest({ timeRange: { start: null, end: null } }).url).toMatch(/^https:/);
     const events = adapter.parseResponse(payload, { now: new Date('2026-09-13T00:00:00Z') });
     expect(events.length).toBeGreaterThan(0);
     expect(events.every(event => event.sourceId === id)).toBe(true);
     expect(events.every(event => event.geometry?.type === 'Point' && event.geometry.coordinates.every(Number.isFinite))).toBe(true);
+    expect(events.every(event => Object.isFrozen(event))).toBe(true);
+    expect(events.every(event => Object.isFrozen(event.geometry))).toBe(true);
+    expect(events.every(event => Object.isFrozen(event.geometry.coordinates))).toBe(true);
   });
 
   it('returns an empty collection for a malformed payload', () => {
@@ -30,13 +41,16 @@ describe.each([
 describe('EONET adapter parity', () => {
   it('selects the newest valid Point, preserves raw names, and isolates malformed events', () => {
     const events = eonet.parseResponse(eonetPayload, {});
-    expect(events.map(event => event.id)).toEqual(['EONET_1', 'EONET_UNSAFE']);
+    expect(events.map(event => event.id)).toEqual(['EONET_1', 'EONET_UNSAFE', 'EONET_MIXED']);
     expect(events[0]).toMatchObject({
       name: '<b>Recent fire</b>', type: 'Wildfire', severity: 'Not specified',
       timestamp: '2026-09-12T10:00:00.000Z', geometry: { coordinates: [151.2, -33.8] },
       detailUrl: 'https://eonet.gsfc.nasa.gov/api/v3/events/EONET_1'
     });
     expect(events[1]).toMatchObject({ type: 'Volcano', detailUrl: '' });
+    expect(events[2]).toMatchObject({
+      type: 'Wildfire', timestamp: '2026-01-02T00:00:00.000Z', geometry: { coordinates: [121, 46] }
+    });
   });
 });
 
@@ -49,8 +63,11 @@ describe('USGS adapter parity', () => {
       'usgs-zero-string': 'Magnitude 0.0',
       'usgs-finite-string': 'Magnitude 2.5',
       'usgs-null': 'Not specified',
+      'usgs-undefined': 'Not specified',
+      'usgs-empty': 'Not specified',
       'usgs-blank': 'Not specified',
       'usgs-false': 'Not specified',
+      'usgs-true': 'Not specified',
       'usgs-nan': 'Not specified',
       'usgs-infinity': 'Not specified',
       'usgs-unsafe-url': 'Magnitude 3.0'
@@ -63,11 +80,12 @@ describe('GDACS adapter parity', () => {
   it('supports case-insensitive fields, coordinate fallbacks, and nested detail URLs', () => {
     const events = gdacs.parseResponse(gdacsPayload, {});
     expect(events.map(event => event.id)).toEqual([
-      'GDACS_1', 'GDACS_UNSAFE', 'nested-details', 'unsafe-report', 'blank-report', 'GDACS_FALLBACK'
+      'GDACS_1', 'GDACS_UNSAFE', 'uppercase-report', 'nested-details', 'unsafe-report', 'blank-report', 'GDACS_FALLBACK'
     ]);
     expect(Object.fromEntries(events.map(event => [event.id, event.detailUrl]))).toEqual({
       GDACS_1: 'https://www.gdacs.org/report.aspx?eventid=GDACS_1',
       GDACS_UNSAFE: '',
+      'uppercase-report': 'https://example.test/uppercase-report',
       'nested-details': 'https://example.test/details-only',
       'unsafe-report': '',
       'blank-report': 'https://example.test/details-after-blank',
